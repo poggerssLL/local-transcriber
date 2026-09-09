@@ -2,18 +2,24 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
+from dataclasses import asdict
 from datetime import date, datetime
+from re import findall
 
 from .database import Database
 from .models import (
     ExportedArtifact,
     JobStatus,
     Recording,
+    RecordingSearchResult,
     Segment,
     Subject,
     Transcript,
     TranscriptionJob,
+    TranscriptionMetrics,
+    TranscriptionSettings,
     Word,
     utc_now,
 )
@@ -91,6 +97,13 @@ class Repository:
             ).fetchone()
         return None if row is None else self._recording(row)
 
+    def find_recording_by_sha256(self, sha256: str) -> Recording | None:
+        with self.database.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM recordings WHERE sha256 = ?", (sha256.lower(),)
+            ).fetchone()
+        return None if row is None else self._recording(row)
+
     def list_recordings(self, subject_id: str | None = None) -> list[Recording]:
         with self.database.connect() as connection:
             if subject_id is None:
@@ -104,6 +117,45 @@ class Repository:
                     (subject_id,),
                 ).fetchall()
         return [self._recording(row) for row in rows]
+
+    def delete_recording(self, recording_id: str) -> bool:
+        with self.database.transaction() as connection:
+            connection.execute("DELETE FROM transcripts WHERE recording_id = ?", (recording_id,))
+            connection.execute(
+                "DELETE FROM transcription_jobs WHERE recording_id = ?", (recording_id,)
+            )
+            cursor = connection.execute("DELETE FROM recordings WHERE id = ?", (recording_id,))
+        return cursor.rowcount == 1
+
+    def search_recordings(self, query: str, *, limit: int = 50) -> list[RecordingSearchResult]:
+        if limit < 1 or limit > 500:
+            raise ValueError("search limit must be between 1 and 500")
+        tokens = findall(r"\w+", query, flags=0)
+        if not tokens:
+            return []
+        fts_query = " AND ".join(f'"{token.replace(chr(34), chr(34) * 2)}"' for token in tokens)
+        with self.database.connect() as connection:
+            rows = connection.execute(
+                """SELECT r.id, r.title, s.name AS subject_name, r.lesson_date,
+                          snippet(recording_search, 3, '<mark>', '</mark>', '…', 16) AS excerpt
+                   FROM recording_search
+                   JOIN recordings AS r ON r.id = recording_search.recording_id
+                   JOIN subjects AS s ON s.id = r.subject_id
+                   WHERE recording_search MATCH ?
+                   ORDER BY bm25(recording_search), r.lesson_date DESC, r.id
+                   LIMIT ?""",
+                (fts_query, limit),
+            ).fetchall()
+        return [
+            RecordingSearchResult(
+                recording_id=row["id"],
+                title=row["title"],
+                subject_name=row["subject_name"],
+                lesson_date=date.fromisoformat(row["lesson_date"]),
+                excerpt=row["excerpt"],
+            )
+            for row in rows
+        ]
 
     @staticmethod
     def _recording(row: sqlite3.Row) -> Recording:
@@ -186,8 +238,10 @@ class Repository:
     def add_transcript(self, transcript: Transcript) -> Transcript:
         with self.database.transaction() as connection:
             connection.execute(
-                """INSERT INTO transcripts (id, recording_id, job_id, language, text, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
+                """INSERT INTO transcripts
+                   (id, recording_id, job_id, language, text, created_at,
+                    settings_json, metrics_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     transcript.id,
                     transcript.recording_id,
@@ -195,6 +249,20 @@ class Repository:
                     transcript.language,
                     transcript.text,
                     transcript.created_at.isoformat(),
+                    json.dumps(
+                        asdict(transcript.settings),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
+                    None
+                    if transcript.metrics is None
+                    else json.dumps(
+                        asdict(transcript.metrics),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
                 ),
             )
             for segment in transcript.segments:
@@ -271,6 +339,10 @@ class Repository:
             language=row["language"],
             text=row["text"],
             segments=tuple(segments),
+            settings=TranscriptionSettings(**json.loads(row["settings_json"])),
+            metrics=None
+            if row["metrics_json"] is None
+            else TranscriptionMetrics(**json.loads(row["metrics_json"])),
             created_at=_dt(row["created_at"]),
         )
 
@@ -278,13 +350,18 @@ class Repository:
         with self.database.transaction() as connection:
             connection.execute(
                 """INSERT INTO exported_artifacts
-                   (id, transcript_id, kind, relative_path, created_at) VALUES (?, ?, ?, ?, ?)""",
+                   (id, transcript_id, kind, relative_path, created_at,
+                    media_type, size_bytes, sha256)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     artifact.id,
                     artifact.transcript_id,
                     artifact.kind,
                     artifact.relative_path,
                     artifact.created_at.isoformat(),
+                    artifact.media_type,
+                    artifact.size_bytes,
+                    artifact.sha256,
                 ),
             )
         return artifact
@@ -301,6 +378,9 @@ class Repository:
                 transcript_id=r["transcript_id"],
                 kind=r["kind"],
                 relative_path=r["relative_path"],
+                media_type=r["media_type"],
+                size_bytes=r["size_bytes"],
+                sha256=r["sha256"],
                 created_at=_dt(r["created_at"]),
             )
             for r in rows

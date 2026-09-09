@@ -1,8 +1,8 @@
 # Local Transcriber
 
-Fundação local para catalogar gravações e persistir o ciclo de vida de futuras
-transcrições. Esta etapa contém somente configuração, modelos de domínio e SQLite;
-não lê mídia nem executa transcrição.
+Aplicação local para catalogar gravações e persistir o ciclo de vida de futuras
+transcrições. A versão atual inclui importação segura e inspeção de mídia, pesquisa
+SQLite FTS5 e exportadores de transcrições artificiais. Ainda não executa transcrição.
 
 ## Requisitos e instalação
 
@@ -23,15 +23,16 @@ absoluto. O diretório é criado apenas quando `RuntimePaths.ensure_directories(
 ## Exemplo mínimo
 
 ```python
-from local_transcriber import AppConfig, Database, Repository
+from local_transcriber import AppConfig, Database, MediaLibrary, Repository
 
 config = AppConfig.from_env()
 config.paths.ensure_directories()
 database = Database(config.paths.database)
 database.initialize()
 repository = Repository(database)
+library = MediaLibrary(repository, config.paths)
 ```
 
-Leia a [explicação detalhada da fundação](docs/FOUNDATION.md), consulte
-[o contrato do projeto](docs/PROJECT_CONTRACT.md) e o [roadmap](docs/ROADMAP.md)
-antes de ampliar o escopo.
+Leia a documentação da [Etapa 2: biblioteca de mídia e exportadores](docs/PHASE_02_MEDIA_LIBRARY.md),
+a [explicação detalhada da fundação](docs/FOUNDATION.md), o
+[contrato do projeto](docs/PROJECT_CONTRACT.md) e o [roadmap](docs/ROADMAP.md).

@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "local-transcriber"
-version = "0.1.0"
-description = "Local-first transcription persistence core"
+version = "0.2.0"
+description = "Local-first media library and transcription data core"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Proprietary" }
 authors = [{ name = "Local Transcriber contributors" }]
-dependencies = []
+dependencies = ["av>=15,<17"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.3,<9", "ruff>=0.9,<1"]

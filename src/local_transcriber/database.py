@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS subjects (
@@ -84,6 +84,112 @@ CREATE INDEX IF NOT EXISTS idx_jobs_recording_status ON transcription_jobs(recor
 CREATE INDEX IF NOT EXISTS idx_segments_transcript ON segments(transcript_id, ordinal);
 """
 
+_MIGRATION_V2 = """
+ALTER TABLE transcripts ADD COLUMN settings_json TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE transcripts ADD COLUMN metrics_json TEXT;
+ALTER TABLE exported_artifacts ADD COLUMN media_type TEXT;
+ALTER TABLE exported_artifacts ADD COLUMN size_bytes INTEGER
+    CHECK (size_bytes IS NULL OR size_bytes >= 0);
+ALTER TABLE exported_artifacts ADD COLUMN sha256 TEXT
+    CHECK (sha256 IS NULL OR length(sha256) = 64);
+
+CREATE VIRTUAL TABLE recording_search USING fts5(
+    recording_id UNINDEXED,
+    title,
+    subject_name,
+    transcript_text,
+    tokenize = 'unicode61 remove_diacritics 2'
+);
+
+INSERT INTO recording_search(rowid, recording_id, title, subject_name, transcript_text)
+SELECT
+    r.rowid,
+    r.id,
+    r.title,
+    s.name,
+    COALESCE((
+        SELECT group_concat(ordered.text, ' ')
+        FROM (
+            SELECT t.text
+            FROM transcripts AS t
+            WHERE t.recording_id = r.id
+            ORDER BY t.created_at, t.id
+        ) AS ordered
+    ), '')
+FROM recordings AS r
+JOIN subjects AS s ON s.id = r.subject_id;
+
+CREATE TRIGGER recordings_search_insert AFTER INSERT ON recordings BEGIN
+    INSERT INTO recording_search(rowid, recording_id, title, subject_name, transcript_text)
+    VALUES (
+        new.rowid,
+        new.id,
+        new.title,
+        (SELECT name FROM subjects WHERE id = new.subject_id),
+        ''
+    );
+END;
+
+CREATE TRIGGER recordings_search_update AFTER UPDATE OF title, subject_id ON recordings BEGIN
+    UPDATE recording_search
+    SET title = new.title,
+        subject_name = (SELECT name FROM subjects WHERE id = new.subject_id)
+    WHERE rowid = new.rowid;
+END;
+
+CREATE TRIGGER recordings_search_delete AFTER DELETE ON recordings BEGIN
+    DELETE FROM recording_search WHERE rowid = old.rowid;
+END;
+
+CREATE TRIGGER subjects_search_update AFTER UPDATE OF name ON subjects BEGIN
+    UPDATE recording_search
+    SET subject_name = new.name
+    WHERE recording_id IN (SELECT id FROM recordings WHERE subject_id = new.id);
+END;
+
+CREATE TRIGGER transcripts_search_insert AFTER INSERT ON transcripts BEGIN
+    UPDATE recording_search
+    SET transcript_text = COALESCE((
+        SELECT group_concat(ordered.text, ' ')
+        FROM (
+            SELECT text
+            FROM transcripts
+            WHERE recording_id = new.recording_id
+            ORDER BY created_at, id
+        ) AS ordered
+    ), '')
+    WHERE recording_id = new.recording_id;
+END;
+
+CREATE TRIGGER transcripts_search_update AFTER UPDATE OF text ON transcripts BEGIN
+    UPDATE recording_search
+    SET transcript_text = COALESCE((
+        SELECT group_concat(ordered.text, ' ')
+        FROM (
+            SELECT text
+            FROM transcripts
+            WHERE recording_id = new.recording_id
+            ORDER BY created_at, id
+        ) AS ordered
+    ), '')
+    WHERE recording_id = new.recording_id;
+END;
+
+CREATE TRIGGER transcripts_search_delete AFTER DELETE ON transcripts BEGIN
+    UPDATE recording_search
+    SET transcript_text = COALESCE((
+        SELECT group_concat(ordered.text, ' ')
+        FROM (
+            SELECT text
+            FROM transcripts
+            WHERE recording_id = old.recording_id
+            ORDER BY created_at, id
+        ) AS ordered
+    ), '')
+    WHERE recording_id = old.recording_id;
+END;
+"""
+
 
 class Database:
     def __init__(self, path: str | Path) -> None:
@@ -110,8 +216,12 @@ class Database:
                 )
             if version < 1:
                 connection.executescript(
-                    f"BEGIN IMMEDIATE;\n{_SCHEMA_V1}\n"
-                    f"PRAGMA user_version = {SCHEMA_VERSION};\nCOMMIT;"
+                    f"BEGIN IMMEDIATE;\n{_SCHEMA_V1}\nPRAGMA user_version = 1;\nCOMMIT;"
+                )
+                version = 1
+            if version < 2:
+                connection.executescript(
+                    f"BEGIN IMMEDIATE;\n{_MIGRATION_V2}\nPRAGMA user_version = 2;\nCOMMIT;"
                 )
 
     @contextmanager
