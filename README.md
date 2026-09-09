@@ -33,6 +33,13 @@ repository = Repository(database)
 library = MediaLibrary(repository, config.paths)
 ```
 
-Leia a documentação da [Etapa 2: biblioteca de mídia e exportadores](docs/PHASE_02_MEDIA_LIBRARY.md),
-a [explicação detalhada da fundação](docs/FOUNDATION.md), o
-[contrato do projeto](docs/PROJECT_CONTRACT.md) e o [roadmap](docs/ROADMAP.md).
+## Contexto para contribuidores
+
+- [AGENTS.md](AGENTS.md): regras obrigatórias para qualquer tarefa neste repositório.
+- [Contrato do projeto](docs/PROJECT_CONTRACT.md): invariantes permanentes do produto.
+- [Estado atual](docs/PROJECT_STATE.md): fotografia curta da versão e das capacidades atuais.
+- [Roadmap](docs/ROADMAP.md): sequência autorizada das fases do projeto.
+- [Decisões arquiteturais](docs/DECISIONS.md): escolhas confirmadas, motivos e consequências.
+- [Problemas conhecidos](docs/KNOWN_ISSUES.md): limitações atuais sem autorização implícita para corrigi-las.
+- [Fundação](docs/FOUNDATION.md): relatório histórico da Etapa 1.
+- [Biblioteca de mídia e exportadores](docs/PHASE_02_MEDIA_LIBRARY.md): relatório histórico da Etapa 2.
