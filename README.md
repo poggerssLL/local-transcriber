@@ -32,5 +32,6 @@ database.initialize()
 repository = Repository(database)
 ```
 
-Consulte [o contrato do projeto](docs/PROJECT_CONTRACT.md) e o
-[roadmap](docs/ROADMAP.md) antes de ampliar o escopo.
+Leia a [explicação detalhada da fundação](docs/FOUNDATION.md), consulte
+[o contrato do projeto](docs/PROJECT_CONTRACT.md) e o [roadmap](docs/ROADMAP.md)
+antes de ampliar o escopo.
