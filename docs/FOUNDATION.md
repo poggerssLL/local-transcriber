@@ -1,72 +1,70 @@
-# Fundação do Local Transcriber
+# Arquitetura técnica do Local Transcriber
 
-Este documento descreve a primeira etapa do **Local Transcriber**. O objetivo foi
-criar uma base segura e testada para as fases futuras, sem implementar leitura de
-mídia, transcrição, fila, API ou interface web.
+> Documento vivo e cumulativo da arquitetura atual. Os relatórios `PHASE_XX_*.md`
+> preservam o estado histórico de cada etapa; esta visão deve acompanhar o sistema.
 
-## Resultado da etapa
+## Finalidade e estado
 
-O projeto é um pacote Python instalável com:
+O **Local Transcriber** é uma aplicação local para catalogar gravações, executar
+transcrição com Faster Whisper e exportar resultados estruturados sem depender de APIs
+de IA em nuvem. A versão atual é `0.3.0`, usa schema SQLite v3 e concluiu:
 
-- configuração tipada e resolução segura do diretório de dados;
-- modelos de domínio imutáveis e validados;
-- banco SQLite com integridade referencial e schema versionado;
-- operações básicas de persistência;
-- testes de caminhos, Unicode, reinicialização, SQL parametrizado e valores inválidos;
-- documentação dos invariantes e do roadmap.
+1. fundação e persistência;
+2. biblioteca de mídia, pesquisa e exportadores;
+3. Faster Whisper, modelos explícitos e CLI.
 
-O runtime fica fora do repositório. Por padrão, seus dados são armazenados em:
+A próxima etapa planejada é a fila persistente. API, SSE, interface web, diarização,
+Ollama, microfone ao vivo e Home Assistant ainda não foram implementados.
 
-```text
-%LOCALAPPDATA%\LocalTranscriber
-```
-
-## Estrutura do projeto
+## Estrutura do repositório
 
 ```text
 Local Transcriber/
-├── .gitignore
+├── AGENTS.md
 ├── README.md
 ├── pyproject.toml
 ├── docs/
 │   ├── FOUNDATION.md
 │   ├── PROJECT_CONTRACT.md
-│   └── ROADMAP.md
+│   ├── PROJECT_STATE.md
+│   ├── ROADMAP.md
+│   ├── DECISIONS.md
+│   ├── KNOWN_ISSUES.md
+│   └── PHASE_XX_*.md
 ├── src/local_transcriber/
-│   ├── __init__.py
 │   ├── config.py
 │   ├── database.py
 │   ├── models.py
-│   └── repository.py
+│   ├── repository.py
+│   ├── media.py
+│   ├── exporters.py
+│   ├── models_manager.py
+│   ├── transcription.py
+│   ├── cli.py
+│   └── __main__.py
 └── tests/
-    ├── test_config.py
-    └── test_persistence.py
 ```
 
-O ambiente virtual próprio fica em `.venv/` e é ignorado pelo Git.
+O pacote usa layout `src/`, Python 3.11 ou superior e um único entrypoint instalável,
+`local-transcriber`.
 
-## Empacotamento Python
+## Componentes e responsabilidades
 
-O `pyproject.toml` define o pacote `local-transcriber`, versão `0.1.0`, com Python
-3.11 ou superior e layout `src/`. O projeto usa `setuptools` para build e não tem
-dependências de runtime nesta fase. `pytest` e `ruff` são dependências opcionais de
-desenvolvimento.
+- `config.py`: resolve configuração, diretórios de runtime e caminhos relativos seguros.
+- `models.py`: define modelos de domínio imutáveis e suas validações.
+- `database.py`: abre conexões SQLite e aplica migrações incrementais.
+- `repository.py`: executa consultas parametrizadas e reconstrói o domínio.
+- `media.py`: importa, inspeciona, cataloga e exclui mídia gerenciada.
+- `exporters.py`: renderiza formatos determinísticos e registra artefatos.
+- `models_manager.py`: lista, verifica e baixa modelos somente mediante confirmação.
+- `transcription.py`: abstrai o engine, resolve perfis e coordena a transcrição.
+- `cli.py`: expõe os serviços existentes sem duplicar regras de negócio.
 
-Instalação para desenvolvimento:
+## Configuração e RuntimePaths
 
-```powershell
-py -3.13 -m venv .venv
-.venv\Scripts\python -m pip install -e ".[dev]"
-.venv\Scripts\python -m pytest
-```
-
-## Configuração e caminhos de runtime
-
-`AppConfig.from_env()` resolve o diretório de dados a partir de `%LOCALAPPDATA%`.
-Para testes ou desenvolvimento, a variável `LOCAL_TRANSCRIBER_DATA_DIR` permite
-usar outro diretório absoluto.
-
-A estrutura preparada para o runtime é:
+`AppConfig.from_env()` usa `%LOCALAPPDATA%\LocalTranscriber` por padrão. Em testes ou
+desenvolvimento, `LOCAL_TRANSCRIBER_DATA_DIR` pode indicar outro diretório absoluto.
+`RuntimePaths` fornece:
 
 ```text
 LocalTranscriber/
@@ -76,167 +74,161 @@ LocalTranscriber/
 └── models/
 ```
 
-Os diretórios só são criados quando `RuntimePaths.ensure_directories()` é chamado.
-Isso evita efeitos colaterais ao importar o pacote.
+Os diretórios são criados explicitamente, não durante a importação do pacote. Caminhos
+persistidos usam `/`, são relativos ao runtime e rejeitam valores absolutos, prefixos de
+unidade, barras invertidas e componentes `..`. A resolução final confirma confinamento.
 
-Os caminhos persistidos para mídia e artefatos são relativos e usam `/`, por
-exemplo `media/2026/aula-01.m4a`. A validação rejeita caminhos absolutos, prefixos
-de unidade, valores vazios, barras invertidas e componentes `..`. A resolução final
-também confirma que o arquivo continua dentro do diretório de runtime.
+Áudios, vídeos, modelos, bancos, transcrições pessoais, exportações, caches e temporários
+permanecem fora do repositório e são bloqueados pelo `.gitignore`.
 
-## Modelos de domínio
+## Domínio e persistência
 
-Os modelos são dataclasses tipadas, imutáveis e com `slots`. Identificadores são
-UUIDs e datas de criação usam UTC.
+Os principais modelos são:
 
-### Matéria
+- `Subject`: matéria associada a gravações;
+- `Recording`: metadados, hash, duração e caminho relativo da mídia;
+- `TranscriptionJob`: ciclo `pending`, `running`, `succeeded`, `failed` ou `cancelled`;
+- `Transcript`: texto, idioma, probabilidade, configurações, métricas e segmentos;
+- `Segment` e `Word`: intervalos temporais ordenados, com probabilidade opcional;
+- `ExportedArtifact`: formato, MIME type, tamanho, hash e caminho relativo;
+- `TranscriptionSettings` e `TranscriptionMetrics`: parâmetros efetivos e desempenho.
 
-`Subject` representa uma matéria com identificador, nome e data de criação. Nomes
-vazios ou formados apenas por espaços são rejeitados.
+Identificadores são UUIDs, datas de criação usam UTC e os modelos validam intervalos,
+probabilidades, hashes, nomes e estados antes da persistência.
 
-### Gravação
+SQLite armazena somente metadados. O schema v1 criou o domínio persistente; o v2 adicionou
+configurações, métricas, metadados de exportação e FTS5; o v3 acrescentou a probabilidade
+do idioma detectado. Migrações publicadas são imutáveis, incrementais e testadas em banco
+vazio e existente. Chaves estrangeiras são habilitadas em cada conexão e todo conteúdo
+variável chega ao SQL por parâmetros.
 
-`Recording` registra:
+## Biblioteca e inspeção de mídia
 
-- título e matéria;
-- data da aula;
-- nome original;
-- hash SHA-256;
-- tamanho em bytes;
-- formato e duração opcional;
-- caminho relativo controlado;
-- identificador e data de criação.
+`MediaLibrary` aceita arquivo controlado ou stream binário. A importação:
 
-O hash precisa ter 64 caracteres hexadecimais. Tamanho e duração não podem ser
-negativos, e o nome original deve ser apenas um nome de arquivo. O áudio não é
-armazenado no SQLite como BLOB: o banco guarda apenas metadados e o caminho.
+1. sanitiza o nome e valida extensão e limites;
+2. copia em blocos para `media/.incoming`, calculando SHA-256;
+3. rejeita duplicidade exata dos bytes;
+4. usa PyAV/FFmpeg para confirmar contêiner, stream de áudio e decodificação;
+5. move atomicamente o temporário para `media/<ano>/<uuid>/<nome>`;
+6. persiste os metadados e compensa o arquivo se o banco falhar.
 
-### Job de transcrição
+WAV, MP3, FLAC, M4A, OGG, MP4, MKV e WebM são extensões aceitas, mas a aceitação real
+depende do contêiner e dos codecs disponíveis no PyAV instalado. Não há conversão,
+normalização ou equivalência perceptual.
 
-`TranscriptionJob` prepara o ciclo de vida da futura execução. Os estados válidos
-são `pending`, `running`, `succeeded`, `failed` e `cancelled`.
+## Pesquisa e exportação
 
-As transições permitidas são:
+A pesquisa local usa SQLite FTS5 com tokenização Unicode e remoção de diacríticos.
+Triggers mantêm título, matéria e conteúdo transcrito sincronizados. As consultas são
+parametrizadas. Ranking e filtros avançados ainda são limitações conhecidas.
+
+Renderizadores puros produzem bytes UTF-8 determinísticos com quebras `LF` em TXT,
+Markdown, SRT, WebVTT e JSON. SRT e WebVTT aplicam convenções próprias de milissegundos;
+Markdown e WebVTT escapam conteúdo. `TranscriptExporter` grava sob `exports/` e registra
+tipo, tamanho e SHA-256 no SQLite.
+
+## Modelos e Faster Whisper
+
+`ModelManager` suporta somente a lista multilíngue aprovada. Listagem e verificação não
+usam rede. Download só ocorre por comando explícito com `--confirm`, primeiro em
+diretório temporário sob `RuntimePaths.models` e depois no destino final verificado.
+
+Uma transcrição comum exige que o modelo já esteja instalado. `FasterWhisperEngine` abre
+o diretório local com `local_files_only=True`, impedindo download implícito. A integração
+validada usa Faster Whisper 1.2.1, CTranslate2 4.8.2 e PyAV 16.1.0.
+
+## Perfis de execução
+
+- `cpu`: seleciona CPU com `int8`.
+- `cuda`: exige dispositivo e runtime aprovados, usa `int8_float16` e nunca faz fallback.
+- `auto`: prefere CUDA somente após a sondagem; caso contrário usa CPU `int8` e registra
+  o motivo.
+
+No Windows, a sondagem verifica CTranslate2 e as bibliotecas necessárias. A presença da
+GPU não prova disponibilidade de CUDA/cuDNN. O smoke test real 3B validou apenas CPU
+`int8`; CUDA continua sem validação ponta a ponta.
+
+## Abstração e serviço de transcrição
+
+`TranscriptionEngine` é um `Protocol` que desacopla o domínio do backend. O adaptador
+`FasterWhisperEngine` recebe mídia e modelo controlados, aplica idioma, beam size,
+timestamps por palavra e VAD, consome integralmente o iterador lazy e converte a saída
+em `Segment`, `Word`, idioma detectado e probabilidade.
+
+`TranscriptionService` coordena o fluxo:
 
 ```text
-pending → running
-pending → cancelled
-running → succeeded
-running → failed
-running → cancelled
+gravação catalogada
+  → modelo local verificado
+  → perfil resolvido
+  → job pending/running
+  → engine consome todos os segmentos
+  → Transcript + métricas
+  → publicação transacional
+  → job succeeded
+  → exportações gerenciadas
 ```
 
-Um job com estado `failed` exige uma mensagem de erro. Estados finais não voltam
-para estados anteriores. Essa estrutura não implementa uma fila; apenas prepara
-sua persistência para uma fase futura.
+Eventos simples e não persistentes informam início, segmentos e conclusão. Eles preparam
+integrações futuras sem implementar uma fila.
 
-### Transcrição, segmentos e palavras
+A transcrição, seus segmentos e palavras e a mudança do job para `succeeded` são
+publicados na mesma transação. Falhas não publicam resultado parcial; o job recebe
+`failed` com erro técnico sanitizado. Uma queda abrupta entre filesystem e SQLite ainda
+pode exigir reconciliação futura.
 
-`Transcript` contém a gravação, o job responsável, idioma opcional, texto completo
-e seus segmentos. Cada job pode produzir no máximo uma transcrição.
+## CLI
 
-Cada `Segment` tem posição ordinal, início, fim, texto e palavras opcionais. Cada
-`Word` pode incluir sua probabilidade. Os intervalos precisam obedecer a
-`0 <= início <= fim`, e probabilidades devem estar entre 0 e 1.
+O entrypoint oferece:
 
-### Artefatos exportados
+- `config check`;
+- `subjects add|list`;
+- `recordings import|list|delete`;
+- `models list|check|download`;
+- `transcribe`;
+- `transcripts list|show`;
+- `export` para TXT, Markdown, SRT, WebVTT e JSON;
+- `--help` e `--version`.
 
-`ExportedArtifact` registra a transcrição de origem, o tipo do arquivo e seu caminho
-relativo seguro. Nesta etapa há somente o registro; os exportadores serão criados
-posteriormente.
+A CLI compõe `MediaLibrary`, `Repository`, `ModelManager`, `TranscriptionService` e
+`TranscriptExporter`; ela não replica suas regras.
 
-## Banco SQLite
+## Evidência de validação
 
-O schema inicial cria as tabelas:
+### Automatizada e com doubles
 
-- `subjects`;
-- `recordings`;
-- `transcription_jobs`;
-- `transcripts`;
-- `segments`;
-- `words`;
-- `exported_artifacts`.
+A suíte de 48 testes funciona sem GPU, modelo ou rede. Ela cobre configuração, domínio,
+migrações, mídia sintética, pesquisa, exportadores, perfis, ausência de download
+automático, backend injetado, consumo lazy, falhas transacionais e comandos principais
+da CLI. Esses testes validam comportamento determinístico, não qualidade de inferência.
 
-O relacionamento principal é:
+### Execução real
 
-```text
-matéria
-└── gravações
-    ├── jobs de transcrição
-    └── transcrição
-        ├── segmentos
-        │   └── palavras opcionais
-        └── artefatos exportados
-```
+O smoke test 3B posterior à Etapa 3 baixou explicitamente o modelo `small` multilíngue e
+executou uma gravação curta em português com CPU `int8`, VAD e timestamps por palavra.
+O job concluiu, gerou segmentos e palavras, persistiu métricas, produziu cinco formatos
+e foi recuperado em novos processos. Foram observados alguns erros linguísticos, mas não
+havia gabarito textual independente e nenhuma taxa de precisão foi calculada. Nenhum
+defeito de implementação foi identificado.
 
-As chaves estrangeiras são habilitadas em cada conexão. O schema também impõe
-restrições para estados, valores não negativos, probabilidades, ordinais únicos,
-hashes e caminhos únicos. Índices apoiam consultas por matéria/data, gravação/estado
-e transcrição/ordem dos segmentos.
+Essa evidência não conclui a Etapa 7: faltam validação ampla de formatos, qualidade,
+desempenho, recuperação operacional e CUDA em configuração compatível.
 
-## Versionamento e transações
+## Limitações e trabalho futuro
 
-A versão atual é `SCHEMA_VERSION = 1`, registrada por `PRAGMA user_version`. A
-inicialização cria o banco se necessário, aplica a migração atomicamente e não
-repete trabalho quando executada novamente. Um banco com schema mais novo que o
-código é rejeitado para evitar corrupção acidental.
+- codecs concretos dependem do PyAV/FFmpeg instalado;
+- duplicidade é somente por bytes;
+- não há conversão ou normalização de mídia;
+- não há reconciliação automática após interrupção abrupta;
+- pesquisa não possui ranking ou filtros avançados;
+- reexportação do mesmo formato exige gestão explícita;
+- qualidade foi observada sem gabarito independente;
+- CUDA não foi validada ponta a ponta;
+- fila persistente, API, SSE e interface web ainda não existem;
+- diarização, Ollama, microfone ao vivo e Home Assistant permanecem fora do MVP.
 
-Conexões são fechadas explicitamente. Escritas usam transações com `commit` no
-sucesso e `rollback` em caso de erro. A transcrição, seus segmentos e suas palavras
-são persistidos como uma única unidade.
-
-## Operações de persistência
-
-`Repository` oferece operações básicas para:
-
-- criar, obter e listar matérias;
-- criar, obter e listar gravações;
-- filtrar gravações por matéria;
-- criar, obter e atualizar jobs;
-- criar e reconstruir transcrições com segmentos e palavras;
-- criar e listar artefatos exportados.
-
-Todas as entradas variáveis são enviadas ao SQLite como parâmetros `?`, sem
-concatenação de conteúdo do usuário no SQL.
-
-## Proteção de dados no Git
-
-O `.gitignore` exclui ambientes virtuais, caches, builds, `.env`, runtime, uploads,
-modelos, bancos SQLite, mídias e transcrições exportadas. Extensões de áudio, vídeo,
-legenda e banco também são bloqueadas explicitamente.
-
-Isso reforça o contrato de que uploads, modelos, bancos, áudios, vídeos e
-transcrições pessoais nunca devem entrar no Git.
-
-## Validação executada
-
-Os 15 testes automatizados cobrem:
-
-- criação do banco e versão do schema;
-- migração idempotente;
-- operações essenciais e relacionamentos;
-- reinicialização preservando registros;
-- resolução e rejeição de caminhos;
-- Unicode em matérias, transcrições e palavras;
-- consultas parametrizadas contra entradas semelhantes a SQL injection;
-- integridade de chaves estrangeiras;
-- hashes, timestamps, probabilidades, estados e transições inválidas.
-
-Também passaram a verificação de lint, a conferência de formatação, a compilação de
-sintaxe e `pip check` sem dependências quebradas.
-
-## Limites desta etapa
-
-Ainda não foram implementados:
-
-- leitura ou análise de mídia;
-- Faster Whisper e download de modelos;
-- transcrição real;
-- fila persistente;
-- FastAPI ou SSE;
-- frontend;
-- diarização, Ollama, microfone ao vivo ou Home Assistant.
-
-Essas decisões estão registradas no [contrato do projeto](PROJECT_CONTRACT.md), e a
-ordem planejada de implementação está no [roadmap](ROADMAP.md).
-
+Consulte [estado atual](PROJECT_STATE.md), [decisões](DECISIONS.md),
+[problemas conhecidos](KNOWN_ISSUES.md), [roadmap](ROADMAP.md) e os relatórios
+[Etapa 1](PHASE_01_FOUNDATION.md), [Etapa 2](PHASE_02_MEDIA_LIBRARY.md),
+[Etapa 3](PHASE_03_WHISPER_AND_CLI.md) e [validação 3B](PHASE_03B_REAL_VALIDATION.md).

@@ -1,6 +1,6 @@
 # Estado atual do projeto
 
-> Fotografia verificada em 2026-09-09 após a Etapa 3. Atualize este documento ao fim de cada fase;
+> Fotografia verificada em 2026-09-09 após a validação real 3B. Atualize este documento ao fim de cada fase;
 > não reescreva os relatórios históricos de fases concluídas.
 
 O **Local Transcriber** é uma aplicação local para catalogar gravações e persistir o
@@ -19,13 +19,21 @@ fora do repositório.
   WebVTT e JSON; um único entrypoint `local-transcriber` expõe esses serviços.
 - Dependências de runtime validadas: PyAV 16.1.0, Faster Whisper 1.2.1 e CTranslate2 4.8.2.
 - Última validação registrada nesta fotografia: 48 testes aprovados.
-- Baseline da Etapa 3: `4ed553dde925fb63e6c066e5b68ab1dff7b9afc8`.
+- Commit funcional verificado da Etapa 3: `b28da0480bee08f533a338001284b36e2a6565bc`.
 - Próxima etapa: Etapa 4, fila persistente.
-- Modelo Whisper real não foi baixado; inferência CPU e GPU permanecem não validadas
-  ponta a ponta até um teste opt-in com modelo local.
+- Um smoke test real posterior à Etapa 3 validou modelo `small` multilíngue, carregamento
+  local, inferência CPU `int8`, português, VAD, timestamps por palavra, métricas, cinco
+  exportações e recuperação da persistência em novos processos.
+- O smoke test real usou áudio de aproximadamente 29,85 segundos, concluiu em cerca de
+  48,11 segundos persistidos, com fator de tempo real 1,612 e pico aproximado de
+  696,6 MiB; produziu 4 segmentos e 67 palavras.
+- A qualidade apresentou alguns erros linguísticos observáveis, mas não havia gabarito
+  textual independente e nenhuma taxa de precisão foi calculada.
 - A sondagem real encontrou um dispositivo CUDA, mas faltaram `cublas64_12.dll` e
-  `cudnn_ops64_9.dll`; por isso `auto` selecionou CPU `int8`.
+  `cudnn_ops64_9.dll`; CUDA permanece sem validação ponta a ponta.
 - Fora do MVP atual: diarização, Ollama, microfone ao vivo e Home Assistant.
 
-Referências: [contrato](PROJECT_CONTRACT.md), [roadmap](ROADMAP.md),
-[fundação](FOUNDATION.md) e [relatório da Etapa 2](PHASE_02_MEDIA_LIBRARY.md).
+Referências: [contrato](PROJECT_CONTRACT.md), [arquitetura viva](FOUNDATION.md),
+[roadmap](ROADMAP.md), [Etapa 1](PHASE_01_FOUNDATION.md),
+[Etapa 2](PHASE_02_MEDIA_LIBRARY.md), [Etapa 3](PHASE_03_WHISPER_AND_CLI.md) e
+[validação real 3B](PHASE_03B_REAL_VALIDATION.md).

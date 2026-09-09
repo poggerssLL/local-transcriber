@@ -47,25 +47,27 @@ só, uma tarefa autorizada; qualquer mudança continua dependente do escopo soli
 
 - Descrição: reexportar o mesmo formato para a mesma transcrição exige gerir o artefato existente.
 - Impacto: a operação não substitui implicitamente uma exportação anterior.
-- Situação atual: comportamento explícito da versão 0.2.0.
+- Situação atual: comportamento explícito existente desde a versão 0.2.0.
 - Possível direção futura: definir política segura de substituição ou versionamento.
 - Fase provável: não definida no roadmap atual.
 
-## Inferência real ainda não validada
+## Validação real ainda parcial
 
-- Descrição: o engine e a CLI estão implementados, mas nenhum modelo Whisper foi baixado.
-- Impacto: os fluxos determinísticos foram validados com backend injetado, sem confirmar
-  qualidade, velocidade ou consumo de memória em áudio real.
-- Situação atual: modelos nunca são baixados automaticamente; a validação exige instalação
-  explícita pelo usuário.
-- Possível direção futura: executar teste opt-in com o modelo `small` já instalado.
+- Descrição: um smoke test real confirmou o modelo `small` em CPU `int8`, mas usou apenas
+  uma gravação curta em português e não possuía gabarito textual independente.
+- Impacto: o fluxo real está comprovado, porém qualidade, precisão, desempenho em cargas
+  maiores e variedade de mídia ainda não foram caracterizados.
+- Situação atual: job, segmentos, palavras, métricas, exportações e persistência foram
+  verificados; alguns erros linguísticos foram observados e nenhuma taxa de precisão foi calculada.
+- Possível direção futura: executar uma matriz sanitizada de formatos, durações e gabaritos.
 - Fase provável: Etapa 7, integração e validação real.
 
 ## Runtime CUDA incompleto no notebook verificado
 
 - Descrição: CTranslate2 encontrou uma GPU, mas `cublas64_12.dll` e
   `cudnn_ops64_9.dll` não estavam carregáveis em 2026-09-09.
-- Impacto: o perfil `auto` usa CPU `int8`; CUDA explícita falha com diagnóstico.
+- Impacto: o perfil `auto` usa CPU `int8`; CUDA explícita falha com diagnóstico, enquanto
+  a inferência CPU real já foi confirmada.
 - Situação atual: nenhum runtime ou DLL NVIDIA foi instalado pela aplicação.
 - Possível direção futura: instalar CUDA 12/cuBLAS 12/cuDNN 9 por canais oficiais e repetir
   `local-transcriber config check` antes do teste opt-in.

@@ -160,3 +160,14 @@ revertam escolhas anteriores sem compreender suas consequências.
 - Decisão: usar um único entrypoint `local-transcriber`, implementado com `argparse`.
 - Motivo: oferecer operação completa sem adicionar outro framework de CLI.
 - Consequências: comandos chamam repositório, biblioteca, exportador e serviço existentes.
+
+## ADR-020 — Documentação viva e histórico imutável
+
+- Data: 2026-09-09
+- Status: aceita
+- Decisão: manter `FOUNDATION.md` como visão técnica cumulativa e documentos
+  `PHASE_XX_*.md` como registros históricos das etapas e validações.
+- Motivo: permitir que novas tarefas encontrem a arquitetura atual sem apagar o contexto
+  factual verdadeiro no encerramento de cada fase.
+- Consequências: mudanças factuais posteriores atualizam a documentação viva e recebem
+  relatório próprio quando relevante; relatórios históricos não são reescritos.

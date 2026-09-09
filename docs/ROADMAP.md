@@ -9,5 +9,9 @@
 7. Integração e validação real.
 8. Futuras fases de diarização, Ollama, tempo real e Home Assistant.
 
+Após a Etapa 3, um smoke test real antecipado confirmou o fluxo CPU `int8` com modelo
+local e persistência. Isso não conclui a Etapa 7, que continua responsável pela integração
+e validação abrangente do MVP.
+
 Cada fase deve respeitar os invariantes de `PROJECT_CONTRACT.md` e incluir testes
 proporcionais ao risco antes de avançar.
