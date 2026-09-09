@@ -45,6 +45,10 @@ class TranscriptionSettings:
     language: str | None = None
     beam_size: int = 5
     word_timestamps: bool = True
+    vad_filter: bool = True
+    profile: str = "auto"
+    device: str | None = None
+    compute_type: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "engine", _required(self.engine, "engine"))
@@ -53,6 +57,12 @@ class TranscriptionSettings:
             object.__setattr__(self, "language", _required(self.language, "language"))
         if self.beam_size < 1:
             raise ValueError("beam_size must be positive")
+        if self.profile not in {"auto", "cpu", "cuda"}:
+            raise ValueError("profile must be auto, cpu, or cuda")
+        if self.device is not None and self.device not in {"cpu", "cuda"}:
+            raise ValueError("device must be cpu or cuda")
+        if self.compute_type is not None:
+            object.__setattr__(self, "compute_type", _required(self.compute_type, "compute type"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,6 +208,7 @@ class Transcript:
     job_id: str
     language: str | None
     text: str
+    language_probability: float | None = None
     segments: tuple[Segment, ...] = ()
     settings: TranscriptionSettings = field(default_factory=TranscriptionSettings)
     metrics: TranscriptionMetrics | None = None
@@ -207,6 +218,10 @@ class Transcript:
     def __post_init__(self) -> None:
         object.__setattr__(self, "recording_id", _required(self.recording_id, "recording id"))
         object.__setattr__(self, "job_id", _required(self.job_id, "job id"))
+        if self.language_probability is not None and (
+            not isfinite(self.language_probability) or not 0 <= self.language_probability <= 1
+        ):
+            raise ValueError("language probability must be finite and between 0 and 1")
         segments = tuple(sorted(self.segments, key=lambda segment: (segment.ordinal, segment.id)))
         object.__setattr__(self, "segments", segments)
         ordinals = [segment.ordinal for segment in segments]

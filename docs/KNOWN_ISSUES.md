@@ -51,21 +51,25 @@ só, uma tarefa autorizada; qualquer mudança continua dependente do escopo soli
 - Possível direção futura: definir política segura de substituição ou versionamento.
 - Fase provável: não definida no roadmap atual.
 
-## CLI ausente
+## Inferência real ainda não validada
 
-- Descrição: ainda não existe interface de linha de comando.
-- Impacto: as funcionalidades atuais são consumidas pela API Python.
-- Situação atual: fase planejada, não um erro da Etapa 2.
-- Possível direção futura: implementar as CLIs previstas.
-- Fase provável: Etapa 3.
+- Descrição: o engine e a CLI estão implementados, mas nenhum modelo Whisper foi baixado.
+- Impacto: os fluxos determinísticos foram validados com backend injetado, sem confirmar
+  qualidade, velocidade ou consumo de memória em áudio real.
+- Situação atual: modelos nunca são baixados automaticamente; a validação exige instalação
+  explícita pelo usuário.
+- Possível direção futura: executar teste opt-in com o modelo `small` já instalado.
+- Fase provável: Etapa 7, integração e validação real.
 
-## Engine Faster Whisper ausente
+## Runtime CUDA incompleto no notebook verificado
 
-- Descrição: o primeiro engine de transcrição ainda não foi integrado.
-- Impacto: a aplicação não executa transcrição real.
-- Situação atual: fase planejada; modelos e engine não foram instalados nem executados.
-- Possível direção futura: integrar Faster Whisper com ação explícita para modelos.
-- Fase provável: Etapa 3.
+- Descrição: CTranslate2 encontrou uma GPU, mas `cublas64_12.dll` e
+  `cudnn_ops64_9.dll` não estavam carregáveis em 2026-09-09.
+- Impacto: o perfil `auto` usa CPU `int8`; CUDA explícita falha com diagnóstico.
+- Situação atual: nenhum runtime ou DLL NVIDIA foi instalado pela aplicação.
+- Possível direção futura: instalar CUDA 12/cuBLAS 12/cuDNN 9 por canais oficiais e repetir
+  `local-transcriber config check` antes do teste opt-in.
+- Fase provável: Etapa 7, integração e validação real.
 
 ## Fila persistente ausente
 

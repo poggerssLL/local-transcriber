@@ -60,6 +60,7 @@ def test_essential_operations_and_restart_preserve_unicode(database: Database) -
             recording_id=recording.id,
             job_id=job.id,
             language="pt",
+            language_probability=0.97,
             text="Olá, mundo — 日本語",
             segments=(
                 Segment(
@@ -85,6 +86,7 @@ def test_essential_operations_and_restart_preserve_unicode(database: Database) -
     loaded = restarted.get_transcript(transcript.id)
     assert loaded is not None
     assert loaded.text == "Olá, mundo — 日本語"
+    assert loaded.language_probability == pytest.approx(0.97)
     assert loaded.segments[0].words[0].text == "Olá"
     assert restarted.list_artifacts(transcript.id) == [artifact]
 

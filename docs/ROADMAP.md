@@ -1,9 +1,9 @@
 # Roadmap
 
-1. Fundação e persistência.
-2. Biblioteca de mídia e exportadores.
-3. Engine Faster Whisper e CLIs.
-4. Fila persistente.
+1. Fundação e persistência — concluída.
+2. Biblioteca de mídia e exportadores — concluída.
+3. Engine Faster Whisper e CLIs — concluída.
+4. Fila persistente — próxima etapa.
 5. API FastAPI e SSE.
 6. Interface web.
 7. Integração e validação real.

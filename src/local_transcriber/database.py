@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS subjects (
@@ -190,6 +190,12 @@ CREATE TRIGGER transcripts_search_delete AFTER DELETE ON transcripts BEGIN
 END;
 """
 
+_MIGRATION_V3 = """
+ALTER TABLE transcripts ADD COLUMN language_probability REAL
+    CHECK (language_probability IS NULL OR
+           (language_probability >= 0 AND language_probability <= 1));
+"""
+
 
 class Database:
     def __init__(self, path: str | Path) -> None:
@@ -222,6 +228,11 @@ class Database:
             if version < 2:
                 connection.executescript(
                     f"BEGIN IMMEDIATE;\n{_MIGRATION_V2}\nPRAGMA user_version = 2;\nCOMMIT;"
+                )
+                version = 2
+            if version < 3:
+                connection.executescript(
+                    f"BEGIN IMMEDIATE;\n{_MIGRATION_V3}\nPRAGMA user_version = 3;\nCOMMIT;"
                 )
 
     @contextmanager

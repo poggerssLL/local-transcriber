@@ -114,3 +114,49 @@ revertam escolhas anteriores sem compreender suas consequências.
 - Decisão: manter o Local Transcriber completamente separado do repositório `Local AI`.
 - Motivo: são projetos e históricos Git distintos.
 - Consequências: tarefas deste projeto não usam, modificam nem versionam o repositório irmão.
+
+## ADR-015 — Abstração do engine
+
+- Data: 2026-09-09
+- Status: aceita
+- Decisão: expor transcrição por um `TranscriptionEngine` estruturalmente tipado e manter
+  Faster Whisper em um adaptador.
+- Motivo: separar o domínio do backend local e permitir um executor remoto futuro.
+- Consequências: a CLI usa `TranscriptionService`; detalhes do Faster Whisper não entram
+  na persistência nem na biblioteca de mídia.
+
+## ADR-016 — Modelos explícitos e locais
+
+- Data: 2026-09-09
+- Status: aceita
+- Decisão: instalar modelos somente pelo comando `models download MODEL --confirm`, sob
+  `RuntimePaths.models`, e transcrever apenas com `local_files_only=True`.
+- Motivo: impedir downloads silenciosos e manter arquivos grandes fora do Git.
+- Consequências: um modelo ausente gera erro acionável antes da criação do job.
+
+## ADR-017 — Perfis de execução conservadores
+
+- Data: 2026-09-09
+- Status: aceita
+- Decisão: CPU usa `int8`; CUDA usa `int8_float16`; `auto` só escolhe CUDA após sondar
+  CTranslate2 e as bibliotecas CUDA/cuDNN exigidas.
+- Motivo: a presença da GPU não comprova que o runtime de inferência está completo.
+- Consequências: `auto` relata o motivo do fallback; CUDA explícita nunca faz fallback.
+
+## ADR-018 — Publicação transacional
+
+- Data: 2026-09-09
+- Status: aceita
+- Decisão: consumir integralmente os segmentos lazy antes de publicar e inserir a
+  transcrição junto da transição do job para `succeeded` na mesma transação SQLite.
+- Motivo: impedir que falhas publiquem resultados parciais como concluídos.
+- Consequências: falhas deixam o job como `failed`, com mensagem técnica sanitizada e sem
+  uma transcrição parcial persistida.
+
+## ADR-019 — CLI com argparse
+
+- Data: 2026-09-09
+- Status: aceita
+- Decisão: usar um único entrypoint `local-transcriber`, implementado com `argparse`.
+- Motivo: oferecer operação completa sem adicionar outro framework de CLI.
+- Consequências: comandos chamam repositório, biblioteca, exportador e serviço existentes.

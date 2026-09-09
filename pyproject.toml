@@ -4,13 +4,20 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "local-transcriber"
-version = "0.2.0"
+version = "0.3.0"
 description = "Local-first media library and transcription data core"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Proprietary" }
 authors = [{ name = "Local Transcriber contributors" }]
-dependencies = ["av>=15,<17"]
+dependencies = [
+    "av>=15,<17",
+    "ctranslate2==4.8.2",
+    "faster-whisper==1.2.1",
+]
+
+[project.scripts]
+local-transcriber = "local_transcriber.cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.3,<9", "ruff>=0.9,<1"]

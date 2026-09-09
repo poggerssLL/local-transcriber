@@ -124,6 +124,7 @@ def _render_json(transcript: Transcript) -> str:
             "recording_id": transcript.recording_id,
             "job_id": transcript.job_id,
             "language": transcript.language,
+            "language_probability": transcript.language_probability,
             "text": transcript.text,
             "settings": asdict(transcript.settings),
             "metrics": metrics,

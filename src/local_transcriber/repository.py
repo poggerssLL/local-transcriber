@@ -237,63 +237,91 @@ class Repository:
 
     def add_transcript(self, transcript: Transcript) -> Transcript:
         with self.database.transaction() as connection:
-            connection.execute(
-                """INSERT INTO transcripts
+            self._insert_transcript(connection, transcript)
+        return transcript
+
+    @staticmethod
+    def _insert_transcript(connection: sqlite3.Connection, transcript: Transcript) -> None:
+        connection.execute(
+            """INSERT INTO transcripts
                    (id, recording_id, job_id, language, text, created_at,
-                    settings_json, metrics_json)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    transcript.id,
-                    transcript.recording_id,
-                    transcript.job_id,
-                    transcript.language,
-                    transcript.text,
-                    transcript.created_at.isoformat(),
-                    json.dumps(
-                        asdict(transcript.settings),
-                        ensure_ascii=False,
-                        sort_keys=True,
-                        separators=(",", ":"),
-                    ),
-                    None
-                    if transcript.metrics is None
-                    else json.dumps(
-                        asdict(transcript.metrics),
-                        ensure_ascii=False,
-                        sort_keys=True,
-                        separators=(",", ":"),
-                    ),
+                    settings_json, metrics_json, language_probability)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                transcript.id,
+                transcript.recording_id,
+                transcript.job_id,
+                transcript.language,
+                transcript.text,
+                transcript.created_at.isoformat(),
+                json.dumps(
+                    asdict(transcript.settings),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
                 ),
-            )
-            for segment in transcript.segments:
-                connection.execute(
-                    """INSERT INTO segments
+                None
+                if transcript.metrics is None
+                else json.dumps(
+                    asdict(transcript.metrics),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+                transcript.language_probability,
+            ),
+        )
+        for segment in transcript.segments:
+            connection.execute(
+                """INSERT INTO segments
                        (id, transcript_id, ordinal, start_seconds, end_seconds, text)
                        VALUES (?, ?, ?, ?, ?, ?)""",
-                    (
-                        segment.id,
-                        transcript.id,
-                        segment.ordinal,
-                        segment.start_seconds,
-                        segment.end_seconds,
-                        segment.text,
-                    ),
-                )
-                for ordinal, word in enumerate(segment.words):
-                    connection.execute(
-                        """INSERT INTO words
+                (
+                    segment.id,
+                    transcript.id,
+                    segment.ordinal,
+                    segment.start_seconds,
+                    segment.end_seconds,
+                    segment.text,
+                ),
+            )
+            for ordinal, word in enumerate(segment.words):
+                connection.execute(
+                    """INSERT INTO words
                            (id, segment_id, ordinal, text, start_seconds, end_seconds, probability)
                            VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                        (
-                            word.id,
-                            segment.id,
-                            ordinal,
-                            word.text,
-                            word.start_seconds,
-                            word.end_seconds,
-                            word.probability,
-                        ),
-                    )
+                    (
+                        word.id,
+                        segment.id,
+                        ordinal,
+                        word.text,
+                        word.start_seconds,
+                        word.end_seconds,
+                        word.probability,
+                    ),
+                )
+
+    def complete_transcription(self, job_id: str, transcript: Transcript) -> Transcript:
+        """Atomically publish a transcript and mark its running job successful."""
+        if transcript.job_id != job_id:
+            raise ValueError("transcript job does not match completed job")
+        updated_at = utc_now()
+        with self.database.transaction() as connection:
+            row = connection.execute(
+                "SELECT status, recording_id FROM transcription_jobs WHERE id = ?", (job_id,)
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"job not found: {job_id}")
+            if JobStatus(row["status"]) is not JobStatus.RUNNING:
+                raise ValueError("only a running job can publish a transcript")
+            if row["recording_id"] != transcript.recording_id:
+                raise ValueError("transcript recording does not match completed job")
+            self._insert_transcript(connection, transcript)
+            connection.execute(
+                """UPDATE transcription_jobs
+                   SET status = ?, error_message = NULL, updated_at = ? WHERE id = ?""",
+                (JobStatus.SUCCEEDED.value, updated_at.isoformat(), job_id),
+            )
         return transcript
 
     def get_transcript(self, transcript_id: str) -> Transcript | None:
@@ -338,6 +366,7 @@ class Repository:
             job_id=row["job_id"],
             language=row["language"],
             text=row["text"],
+            language_probability=row["language_probability"],
             segments=tuple(segments),
             settings=TranscriptionSettings(**json.loads(row["settings_json"])),
             metrics=None
@@ -345,6 +374,21 @@ class Repository:
             else TranscriptionMetrics(**json.loads(row["metrics_json"])),
             created_at=_dt(row["created_at"]),
         )
+
+    def list_transcripts(self, recording_id: str | None = None) -> list[Transcript]:
+        with self.database.connect() as connection:
+            if recording_id is None:
+                rows = connection.execute(
+                    "SELECT id FROM transcripts ORDER BY created_at DESC, id"
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """SELECT id FROM transcripts WHERE recording_id = ?
+                       ORDER BY created_at DESC, id""",
+                    (recording_id,),
+                ).fetchall()
+        transcripts = [self.get_transcript(row["id"]) for row in rows]
+        return [transcript for transcript in transcripts if transcript is not None]
 
     def add_artifact(self, artifact: ExportedArtifact) -> ExportedArtifact:
         with self.database.transaction() as connection:

@@ -11,7 +11,7 @@ from local_transcriber import (
     Transcript,
     TranscriptionJob,
 )
-from local_transcriber.database import _SCHEMA_V1
+from local_transcriber.database import _MIGRATION_V2, _SCHEMA_V1
 
 
 def _create_v1_database(path: Path) -> tuple[str, str]:
@@ -67,7 +67,7 @@ def test_v2_migrates_existing_v1_and_is_idempotent(tmp_path: Path) -> None:
     database.initialize()
     database.initialize()
 
-    assert database.schema_version() == SCHEMA_VERSION == 2
+    assert database.schema_version() == SCHEMA_VERSION == 3
     repository = Repository(database)
     assert repository.get_subject(subject_id).name == "Matemática"
     assert repository.get_recording(recording_id).title == "Álgebra linear"
@@ -75,7 +75,7 @@ def test_v2_migrates_existing_v1_and_is_idempotent(tmp_path: Path) -> None:
     assert repository.search_recordings("legado")[0].recording_id == recording_id
 
 
-def test_empty_database_runs_v1_then_v2(tmp_path: Path) -> None:
+def test_empty_database_runs_all_migrations(tmp_path: Path) -> None:
     database = Database(tmp_path / "empty.sqlite3")
     database.initialize()
     database.initialize()
@@ -85,8 +85,22 @@ def test_empty_database_runs_v1_then_v2(tmp_path: Path) -> None:
         fts = connection.execute(
             "SELECT name FROM sqlite_master WHERE name = 'recording_search'"
         ).fetchone()
-    assert {"settings_json", "metrics_json"} <= columns
+    assert {"settings_json", "metrics_json", "language_probability"} <= columns
     assert fts is not None
+
+
+def test_existing_v2_database_migrates_to_v3(tmp_path: Path) -> None:
+    path = tmp_path / "existing-v2.sqlite3"
+    with sqlite3.connect(path) as connection:
+        connection.executescript(_SCHEMA_V1)
+        connection.executescript(_MIGRATION_V2)
+        connection.execute("PRAGMA user_version = 2")
+    database = Database(path)
+    database.initialize()
+    with database.connect() as connection:
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info(transcripts)")}
+    assert database.schema_version() == SCHEMA_VERSION == 3
+    assert "language_probability" in columns
 
 
 def test_fts_searches_title_subject_and_transcript_safely(tmp_path: Path) -> None:
