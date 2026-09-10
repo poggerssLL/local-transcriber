@@ -1,6 +1,6 @@
 # Estado atual do projeto
 
-> Fotografia verificada em 2026-09-10 após a Etapa 6. Atualize este documento ao fim de cada fase;
+> Fotografia verificada em 2026-09-10 após a correção complementar 5C. Atualize este documento ao fim de cada fase;
 > não reescreva os relatórios históricos de fases concluídas.
 
 O **Local Transcriber** é uma aplicação local para catalogar gravações e persistir o
@@ -10,7 +10,7 @@ API FastAPI restrita ao localhost, interface web local, eventos SSE, exportadore
 persistência de metadados em SQLite; mídias, modelos e demais dados de runtime ficam fora
 do repositório.
 
-- Versão do pacote: `0.6.0`.
+- Versão do pacote: `0.6.1`.
 - Schema SQLite: v4.
 - Etapas concluídas: 1, fundação e persistência; 2, biblioteca de mídia e exportadores;
   3, Faster Whisper, gerenciamento explícito de modelos e CLI; 4, fila persistente;
@@ -27,8 +27,8 @@ do repositório.
   esses serviços.
 - Dependências validadas: PyAV 16.1.0, Faster Whisper 1.2.1, CTranslate2 4.8.2,
   FastAPI 0.116.2, Starlette 0.48.0, Uvicorn 0.52.4 e python-multipart 0.0.32.
-- Última validação registrada nesta fotografia: 101 testes aprovados, inicialização HTTP
-  real em `127.0.0.1` e inspeção visual no navegador com dados sintéticos temporários.
+- Última validação registrada nesta fotografia: 107 testes aprovados, incluindo contenção
+  SQLite determinística, além da inicialização HTTP e inspeção visual da Etapa 6.
 - Commit funcional verificado da Etapa 3: `b28da0480bee08f533a338001284b36e2a6565bc`.
 - Próxima etapa: Etapa 7, integração e validação real abrangente do MVP.
 - `local-transcriber serve` aceita somente `127.0.0.1` e um consumidor de fila por
@@ -36,6 +36,11 @@ do repositório.
   não inicia downloads de modelos.
 - O SSE usa consulta SQLite incremental e parametrizada por job e sequência, limita cada
   lote, drena backlog antes de aguardar e não relê todo o histórico a cada polling.
+- O worker consulta primeiro, sem lock de escrita, se existe job pendente ou lease vencida.
+  Somente então entra em `BEGIN IMMEDIATE` e repete recuperação e seleção antes do
+  compare-and-set. Falhas `SQLITE_BUSY` e `SQLITE_LOCKED` na reivindicação recebem retry
+  curto e limitado; erros permanentes ou limite excedido encerram o controlador com falha
+  registrada, em vez de ficarem ocultos em loop.
 - A fila usa estados públicos preservados e fases operacionais separadas. A reivindicação
   é transacional e condicionada ao estado; a posse usa worker e lease renovável.
 - Falhas SQLite transitórias do heartbeat têm retry limitado enquanto há margem segura.
@@ -71,4 +76,5 @@ Referências: [contrato](PROJECT_CONTRACT.md), [arquitetura viva](FOUNDATION.md)
 [correção complementar 4B](PHASE_04B_LEASE_RELIABILITY.md) e
 [Etapa 5](PHASE_05_LOCAL_API_AND_SSE.md) e
 [correção complementar 5B](PHASE_05B_OFFLINE_DOCS_AND_INCREMENTAL_SSE.md) e
-[Etapa 6](PHASE_06_WEB_INTERFACE.md).
+[Etapa 6](PHASE_06_WEB_INTERFACE.md) e
+[correção complementar 5C](PHASE_05C_SQLITE_CONTENTION_RELIABILITY.md).

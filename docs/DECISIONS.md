@@ -282,3 +282,17 @@ revertam escolhas anteriores sem compreender suas consequências.
 - Consequências: não se usam sinks de HTML dinâmico; estados têm texto e regiões
   `aria-live`; desconexões SSE são anunciadas e reconectadas pelo navegador, enquanto o
   backend continua responsável por `Last-Event-ID` e replay dos eventos persistidos.
+
+## ADR-031 — Pré-consulta de fila e retry SQLite limitado
+
+- Data: 2026-09-10
+- Status: aceita
+- Decisão: consultar por trabalho reivindicável sem transação de escrita antes de entrar
+  em `BEGIN IMMEDIATE`, revalidar integralmente dentro da transação e repetir somente
+  falhas `SQLITE_BUSY` ou `SQLITE_LOCKED` com espera curta e limite consecutivo.
+- Motivo: impedir que um worker ocioso cause starvation de uploads e outras mutações sem
+  afrouxar a atomicidade da posse ou transformar todo acesso ao SQLite em lock global.
+- Consequências: uma criação concorrente após pré-consulta vazia pode aguardar o próximo
+  polling; dois workers ainda disputam por compare-and-set dentro da transação. Três
+  retries transitórios são permitidos; erro permanente ou limite excedido é registrado,
+  logado e encerra o controlador, sem loop infinito.

@@ -33,3 +33,8 @@ CDN ou serviço externo. Painel, matérias, biblioteca, configuração de transc
 leitura sincronizada, exportações e modelos usam a API da mesma origem. Testes automatizados
 e inspeção real no navegador usaram somente mídia, jobs e transcrições sintéticos; a
 validação real abrangente permanece na Etapa 7.
+
+A correção complementar 5C removeu a contenção de escrita causada pelo polling do worker
+com fila vazia. A pré-consulta é somente leitura, enquanto recuperação e reivindicação
+continuam atômicas sob `BEGIN IMMEDIATE`; falhas SQLite transitórias recebem retry limitado.
+A Etapa 7 permanece a próxima etapa e não foi iniciada por essa correção.

@@ -5,7 +5,7 @@ A versão atual inclui importação segura e inspeção de mídia, pesquisa SQLi
 transcrição local síncrona, fila persistente com worker local, API FastAPI restrita ao
 localhost, interface web local, eventos SSE e exportadores TXT, Markdown, SRT, WebVTT e JSON.
 
-Versão atual: `0.6.0`, com schema SQLite v4.
+Versão atual: `0.6.1`, com schema SQLite v4.
 
 ## Requisitos e instalação
 
@@ -85,6 +85,12 @@ mais ser garantida. Somente o proprietário da lease válida pode persistir prog
 publicar. Após uma expiração pode haver breve sobreposição de computação até o worker
 obsoleto alcançar um ponto cooperativo, mas a publicação transacional impede dois
 resultados finais para o mesmo job.
+
+Quando a fila está vazia, o worker faz apenas uma pré-consulta SQLite de leitura. Havendo
+job pendente ou lease vencida, ele entra em `BEGIN IMMEDIATE` e repete a validação antes do
+compare-and-set, preservando a reivindicação atômica sem disputar lock de escrita em cada
+polling. `SQLITE_BUSY` e `SQLITE_LOCKED` durante a reivindicação recebem espera curta e
+retry limitado; falhas permanentes encerram o controlador com erro registrado.
 
 ## API local
 
@@ -195,3 +201,5 @@ em cargas longas, CUDA e a validação ampla permanecem pendentes para a Etapa 7
   e leitura incremental dos eventos SSE.
 - [Interface web](docs/PHASE_06_WEB_INTERFACE.md): aplicação vanilla, acessibilidade,
   fluxos locais e validação visual da Etapa 6.
+- [Confiabilidade SQLite 5C](docs/PHASE_05C_SQLITE_CONTENTION_RELIABILITY.md): prevenção
+  de contenção no polling ocioso e retry limitado da reivindicação.

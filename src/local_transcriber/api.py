@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import mimetypes
 import os
 import re
@@ -71,6 +72,7 @@ _CONTENT_TYPES = {
     ".webm": frozenset({"audio/webm", "video/webm"}),
 }
 _RANGE = re.compile(r"^bytes=(\d*)-(\d*)$")
+LOGGER = logging.getLogger(__name__)
 
 
 class ApiModel(BaseModel):
@@ -223,11 +225,26 @@ class ExportResponse(ApiModel):
 
 
 class _WorkerController:
-    def __init__(self, worker: TranscriptionWorker, *, poll_interval: float = 0.5) -> None:
+    def __init__(
+        self,
+        worker: TranscriptionWorker,
+        *,
+        poll_interval: float = 0.5,
+        max_transient_retries: int = 3,
+        retry_interval: float | None = None,
+    ) -> None:
+        if max_transient_retries < 0:
+            raise ValueError("max_transient_retries must be non-negative")
+        if retry_interval is not None and retry_interval <= 0:
+            raise ValueError("retry_interval must be positive")
         self.worker = worker
         self.poll_interval = poll_interval
+        self.max_transient_retries = max_transient_retries
+        self.retry_interval = retry_interval or max(0.01, min(0.25, poll_interval))
         self.stop_requested = Event()
         self.thread = Thread(target=self._run, name="local-transcriber-worker", daemon=False)
+        self.first_transient_error: sqlite3.OperationalError | None = None
+        self.fatal_error: sqlite3.OperationalError | None = None
 
     def start(self) -> None:
         self.thread.start()
@@ -237,10 +254,44 @@ class _WorkerController:
         self.thread.join()
 
     def _run(self) -> None:
+        transient_failures = 0
         while not self.stop_requested.is_set():
-            processed = self.worker.run_once()
+            try:
+                processed = self.worker.run_once()
+            except sqlite3.OperationalError as error:
+                if not _is_transient_sqlite_error(error):
+                    self.fatal_error = error
+                    LOGGER.exception("local worker stopped after a permanent SQLite error")
+                    return
+                if self.first_transient_error is None:
+                    self.first_transient_error = error
+                transient_failures += 1
+                if transient_failures > self.max_transient_retries:
+                    self.fatal_error = error
+                    LOGGER.exception("local worker stopped after bounded SQLite retries")
+                    return
+                if self.stop_requested.wait(self.retry_interval):
+                    return
+                continue
+            transient_failures = 0
             if processed is None:
                 self.stop_requested.wait(self.poll_interval)
+
+
+def _is_transient_sqlite_error(error: sqlite3.OperationalError) -> bool:
+    code = getattr(error, "sqlite_errorcode", None)
+    if isinstance(code, int) and code & 0xFF in {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED}:
+        return True
+    message = str(error).casefold()
+    return any(
+        marker in message
+        for marker in (
+            "database is locked",
+            "database is busy",
+            "database table is locked",
+            "database schema is locked",
+        )
+    )
 
 
 class _SingleWorkerLock:

@@ -333,8 +333,12 @@ class Repository:
         if lease_seconds <= 0:
             raise ValueError("lease_seconds must be positive")
         claimed_at = now or utc_now()
+        if not self._has_claimable_work(claimed_at):
+            return None
         lease_expires = claimed_at + timedelta(seconds=lease_seconds)
         with self.database.transaction(immediate=True) as connection:
+            # The read-only preflight may race with another process. Recovery and
+            # selection are repeated under the writer lock before any claim.
             self._recover_expired_jobs(connection, claimed_at)
             row = connection.execute(
                 """SELECT id FROM transcription_jobs
@@ -373,6 +377,23 @@ class Repository:
                 "SELECT * FROM transcription_jobs WHERE id = ?", (row["id"],)
             ).fetchone()
         return self._job(claimed)
+
+    def _has_claimable_work(self, checked_at: datetime) -> bool:
+        """Check for pending work or expired leases without taking a writer lock."""
+        with self.database.connect() as connection:
+            row = connection.execute(
+                """SELECT 1 FROM transcription_jobs
+                   WHERE (
+                       status = 'pending' AND cancel_requested_at IS NULL
+                       AND attempt_count < max_attempts
+                   ) OR (
+                       status = 'running'
+                       AND (lease_expires_at IS NULL OR lease_expires_at <= ?)
+                   )
+                   LIMIT 1""",
+                (checked_at.isoformat(),),
+            ).fetchone()
+        return row is not None
 
     def recover_expired_jobs(self, *, now: datetime | None = None) -> int:
         recovered_at = now or utc_now()

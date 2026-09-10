@@ -7,7 +7,7 @@
 
 O **Local Transcriber** é uma aplicação local para catalogar gravações, executar
 transcrição com Faster Whisper e exportar resultados estruturados sem depender de APIs
-de IA em nuvem. A versão atual é `0.6.0`, usa schema SQLite v4 e concluiu:
+de IA em nuvem. A versão atual é `0.6.1`, usa schema SQLite v4 e concluiu:
 
 1. fundação e persistência;
 2. biblioteca de mídia, pesquisa e exportadores;
@@ -213,9 +213,22 @@ pode exigir reconciliação futura.
 ### Concorrência, leases e recuperação
 
 A reivindicação usa `BEGIN IMMEDIATE` e um `UPDATE` condicionado ao estado `pending`.
+Antes de adquirir esse lock de escrita, o worker faz uma consulta somente leitura por job
+pendente reivindicável ou lease vencida. Resultado vazio encerra o polling sem transação de
+escrita; um falso negativo causado por criação concorrente é revisto no polling seguinte.
+Quando existe candidato, recuperação e seleção são repetidas dentro da transação imediata,
+de modo que a pré-consulta nunca substitui o compare-and-set nem decide a posse.
+
 Cada worker processa no máximo um job por vez; uma heartbeat renova a lease durante
-operações demoradas. Falhas SQLite transitórias são repetidas de modo limitado enquanto
-há margem segura antes da expiração. A primeira falha permanece observável no estado da
+operações demoradas. `SQLITE_BUSY` e `SQLITE_LOCKED` na consulta ou reivindicação recebem
+espera curta, responsiva ao shutdown, e no máximo três retries consecutivos. Um sucesso
+zera a contagem. Erros SQLite permanentes e falhas transitórias além do limite encerram o
+controlador com a exceção registrada e logada, em vez de serem ocultados em loop infinito.
+Isso é prevenção de starvation; o `busy_timeout` permanece uma espera do SQLite quando já
+existe contenção e não eliminaria a aquisição desnecessária de locks pelo polling vazio.
+
+Falhas SQLite transitórias da heartbeat também são repetidas de modo limitado enquanto há
+margem segura antes da expiração. A primeira falha permanece observável no estado da
 heartbeat; perda definitiva ou impossibilidade de renovar com segurança ativa um sinal
 compartilhado, consultado nos callbacks de progresso e nos pontos cooperativos.
 
@@ -359,7 +372,7 @@ overflow horizontal da página.
 
 ### Automatizada e com doubles
 
-A suíte de 101 testes funciona sem GPU, modelo ou rede. Ela cobre configuração, domínio,
+A suíte de 107 testes funciona sem GPU, modelo ou rede. Ela cobre configuração, domínio,
 migrações v1–v4, mídia sintética, pesquisa, exportadores, perfis, ausência de download
 automático, backend injetado, consumo lazy, reivindicação concorrente, leases, recuperação,
 cancelamento, retry, progresso, publicação idempotente, falhas transacionais, recuperação
@@ -371,6 +384,12 @@ incrementais limitadas, backlog em vários lotes, lifespan, shell e assets locai
 semântico, ausência de sinks inseguros, fluxo web de upload, pesquisa, fila, cancelamento,
 reprodução por Range, exportações e metadados de runtime. Esses testes validam comportamento
 determinístico, não qualidade de inferência.
+
+As regressões 5C verificam que fila vazia não abre transação imediata, upload concorre com
+polling ocioso sem locks de escritor, um job criado após pré-consulta vazia é encontrado no
+polling seguinte, falha transitória não mata o controlador e retries repetidos são
+limitados. Os testes existentes continuam cobrindo dois workers, lease expirada, ciclo
+completo com engine falsa e evento terminal sanitizado. Nenhuma inferência real foi usada.
 
 Uma inspeção real em navegador Chromium percorreu painel, biblioteca vazia e preenchida,
 modelo ausente, confirmação, falha, job em andamento, busca, leitura, exportação, tela
@@ -428,4 +447,5 @@ Consulte [estado atual](PROJECT_STATE.md), [decisões](DECISIONS.md),
 [correção complementar 4B](PHASE_04B_LEASE_RELIABILITY.md),
 [Etapa 5](PHASE_05_LOCAL_API_AND_SSE.md),
 [correção complementar 5B](PHASE_05B_OFFLINE_DOCS_AND_INCREMENTAL_SSE.md) e
-[Etapa 6](PHASE_06_WEB_INTERFACE.md).
+[Etapa 6](PHASE_06_WEB_INTERFACE.md) e
+[correção complementar 5C](PHASE_05C_SQLITE_CONTENTION_RELIABILITY.md).

@@ -120,7 +120,8 @@ só, uma tarefa autorizada; qualquer mudança continua dependente do escopo soli
 - Descrição: fila, leases, progresso, cancelamento e recuperação usam engines falsos nos testes.
 - Impacto: custos e latências sob Faster Whisper real ainda não foram caracterizados.
 - Situação atual: áudio simulado de duas horas prova ausência de timeout artificial, mas não
-  representa uma execução longa real.
+  representa uma execução longa real. A contenção do polling ocioso foi corrigida e testada
+  deterministicamente sem inferência.
 - Possível direção futura: executar cenários sanitizados de carga e interrupção reais.
 - Fase provável: Etapa 7, integração e validação real.
 
