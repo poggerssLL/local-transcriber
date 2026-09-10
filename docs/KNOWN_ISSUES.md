@@ -85,13 +85,32 @@ só, uma tarefa autorizada; qualquer mudança continua dependente do escopo soli
   `local-transcriber config check` antes do teste opt-in.
 - Fase provável: Etapa 7, integração e validação real.
 
-## Fila persistente ausente
+## Recuperação reinicia a inferência
 
-- Descrição: o domínio persiste jobs, mas não implementa uma fila de execução.
-- Impacto: não há agendamento nem retomada persistente de processamento.
-- Situação atual: fase planejada, não um erro da fundação.
-- Possível direção futura: implementar a fila persistente.
-- Fase provável: Etapa 4.
+- Descrição: o Faster Whisper atual não retoma do ponto acústico após perda da lease.
+- Impacto: um job recuperado pode repetir o processamento completo e consumir tempo extra.
+- Situação atual: a execução é `at least once`, com limite de tentativas; publicação final
+  é idempotente e continua limitada a uma transcrição por job.
+- Possível direção futura: avaliar checkpoints apenas se o engine oferecer suporte seguro.
+- Fase provável: não definida no roadmap atual.
+
+## Cancelamento não instantâneo
+
+- Descrição: o cancelamento é verificado cooperativamente durante o consumo de segmentos.
+- Impacto: carregamento do modelo e operações indivisíveis podem atrasar a parada.
+- Situação atual: a solicitação é persistida imediatamente e impede publicação posterior;
+  jobs pendentes são cancelados sem iniciar inferência.
+- Possível direção futura: medir latência e pontos de cooperação com inferência real.
+- Fase provável: Etapa 7, integração e validação real.
+
+## Fila ainda não validada com inferência real
+
+- Descrição: fila, leases, progresso, cancelamento e recuperação usam engines falsos nos testes.
+- Impacto: custos e latências sob Faster Whisper real ainda não foram caracterizados.
+- Situação atual: áudio simulado de duas horas prova ausência de timeout artificial, mas não
+  representa uma execução longa real.
+- Possível direção futura: executar cenários sanitizados de carga e interrupção reais.
+- Fase provável: Etapa 7, integração e validação real.
 
 ## API, SSE e frontend ausentes
 

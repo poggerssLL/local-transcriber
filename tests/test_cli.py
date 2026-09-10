@@ -54,6 +54,10 @@ def test_cli_parser_exposes_transcription_defaults() -> None:
     assert args.profile == "auto"
     assert args.language == "auto"
     assert args.beam_size == 5
+    queued = build_parser().parse_args(["jobs", "enqueue", "recording-id"])
+    assert queued.model == "small"
+    assert queued.max_attempts == 3
+    assert build_parser().parse_args(["worker", "run", "--once"]).once is True
 
 
 def test_cli_import_list_transcribe_guard_and_delete(tmp_path, monkeypatch) -> None:
@@ -125,3 +129,43 @@ def test_cli_lists_shows_and_exports_transcript(tmp_path, monkeypatch) -> None:
     result, output, _ = invoke(["export", transcript.id, "--format", ExportFormat.JSON.value])
     assert result == 0
     assert "exports/" in output
+
+
+def test_cli_queue_lifecycle_and_empty_worker_once(tmp_path, monkeypatch) -> None:
+    runtime = (tmp_path / "runtime").resolve()
+    monkeypatch.setenv("LOCAL_TRANSCRIBER_DATA_DIR", str(runtime))
+    assert invoke(["worker", "run", "--once"])[0] == 0
+
+    paths = RuntimePaths(runtime)
+    paths.ensure_directories()
+    database = Database(paths.database)
+    database.initialize()
+    repository = Repository(database)
+    subject = repository.add_subject(Subject(name="Fila"))
+    media = paths.media / "queued.wav"
+    media.write_bytes(b"managed")
+    recording = repository.add_recording(
+        Recording(
+            title="Fila",
+            subject_id=subject.id,
+            lesson_date=date(2026, 9, 10),
+            original_name="queued.wav",
+            sha256="c" * 64,
+            size_bytes=7,
+            media_format="wav",
+            duration_seconds=10,
+            relative_path="media/queued.wav",
+        )
+    )
+    model = paths.models / "small"
+    model.mkdir()
+    for name in ("config.json", "model.bin", "tokenizer.json"):
+        (model / name).write_bytes(b"test")
+
+    result, output, _ = invoke(["jobs", "enqueue", recording.id, "--profile", "cpu"])
+    assert result == 0
+    job_id = output.split("\t", 1)[0]
+    assert job_id in invoke(["jobs", "list"])[1]
+    assert '"phase": "queued"' in invoke(["jobs", "show", job_id])[1]
+    assert "cancelled\tcompleted" in invoke(["jobs", "cancel", job_id])[1]
+    assert "pending\tqueued" in invoke(["jobs", "retry", job_id])[1]

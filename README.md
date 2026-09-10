@@ -2,7 +2,8 @@
 
 Aplicação local para catalogar gravações e executar transcrição com Faster Whisper.
 A versão atual inclui importação segura e inspeção de mídia, pesquisa SQLite FTS5,
-transcrição local síncrona e exportadores TXT, Markdown, SRT, WebVTT e JSON.
+transcrição local síncrona, fila persistente com worker local e exportadores TXT,
+Markdown, SRT, WebVTT e JSON.
 
 ## Requisitos e instalação
 
@@ -53,6 +54,13 @@ local-transcriber models list
 local-transcriber models check small
 local-transcriber models download small --confirm
 local-transcriber transcribe ID --model small --profile auto --language auto
+local-transcriber jobs enqueue ID --model small --profile auto --language auto
+local-transcriber jobs list
+local-transcriber jobs show JOB_ID
+local-transcriber jobs cancel JOB_ID
+local-transcriber jobs retry JOB_ID
+local-transcriber worker run --once
+local-transcriber worker run
 local-transcriber transcripts list
 local-transcriber transcripts show ID
 local-transcriber export ID --format srt
@@ -61,6 +69,12 @@ local-transcriber export ID --format srt
 `models download` é a única operação que pode obter um modelo e exige `--confirm`.
 Uma transcrição comum abre exclusivamente o diretório já instalado com
 `local_files_only=True`; se o modelo estiver ausente, o comando falha sem acessar a rede.
+
+`transcribe` continua síncrono. `jobs enqueue` apenas persiste o trabalho, e `worker run`
+processa a fila localmente com concorrência padrão 1. Jobs mantêm progresso e eventos no
+SQLite, aceitam cancelamento e retry e recuperam leases expiradas. A recuperação pode
+reiniciar a inferência desde o começo; a execução é `at least once`, enquanto a publicação
+final permanece idempotente e limitada a uma transcrição por job.
 
 Perfis de execução:
 
@@ -93,3 +107,4 @@ em cargas longas, CUDA e a validação ampla permanecem pendentes para a Etapa 7
 - [Faster Whisper e CLI](docs/PHASE_03_WHISPER_AND_CLI.md): relatório histórico da Etapa 3.
 - [Validação real 3B](docs/PHASE_03B_REAL_VALIDATION.md): smoke test posterior da Etapa 3.
 - [Validação real 3C](docs/PHASE_03C_SECOND_REAL_VALIDATION.md): segunda execução real da Etapa 3.
+- [Fila persistente](docs/PHASE_04_PERSISTENT_QUEUE.md): relatório histórico da Etapa 4.

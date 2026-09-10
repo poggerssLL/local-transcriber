@@ -171,3 +171,46 @@ revertam escolhas anteriores sem compreender suas consequências.
   factual verdadeiro no encerramento de cada fase.
 - Consequências: mudanças factuais posteriores atualizam a documentação viva e recebem
   relatório próprio quando relevante; relatórios históricos não são reescritos.
+
+## ADR-021 — Estados públicos e fases operacionais separadas
+
+- Data: 2026-09-10
+- Status: aceita
+- Decisão: preservar `pending`, `running`, `succeeded`, `failed` e `cancelled`, mantendo a
+  fase operacional em um campo separado.
+- Motivo: conservar compatibilidade pública e ainda representar fila, carregamento,
+  inferência, finalização e cancelamento.
+- Consequências: consumidores usam `status` para o resultado estável e `phase` para o
+  andamento detalhado.
+
+## ADR-022 — Posse por lease e execução at least once
+
+- Data: 2026-09-10
+- Status: aceita
+- Decisão: reivindicar jobs com transação SQLite, compare-and-set, identificador do worker
+  e lease renovável; uma lease expirada pode reiniciar a tentativa desde o começo.
+- Motivo: permitir recuperação determinística sem alegar retomada acústica ou garantia
+  “exactly once” que o engine não oferece.
+- Consequências: execução após crash é `at least once`; workers sem posse não atualizam nem
+  publicam, e o limite de tentativas evita repetição indefinida.
+
+## ADR-023 — Publicação idempotente e eventos persistentes
+
+- Data: 2026-09-10
+- Status: aceita
+- Decisão: manter uma transcrição única por job, publicar resultado e sucesso na mesma
+  transação e persistir eventos ordenados separadamente.
+- Motivo: impedir resultados parciais e conservar progresso após reinicialização.
+- Consequências: repetição da publicação concluída devolve o resultado existente; eventos
+  de progresso não são checkpoints acústicos retomáveis.
+
+## ADR-024 — Worker local sequencial e cancelamento cooperativo
+
+- Data: 2026-09-10
+- Status: aceita
+- Decisão: usar concorrência padrão 1, sem timeout total, e verificar cancelamento entre
+  segmentos e antes da publicação.
+- Motivo: limitar memória e modelos simultâneos, aceitar gravações longas e respeitar o
+  consumo lazy do Faster Whisper.
+- Consequências: cancelamento pode aguardar carregamento do modelo ou outra operação
+  indivisível; interrupções do processo são recuperadas pela lease.

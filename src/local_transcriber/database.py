@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS subjects (
@@ -196,6 +196,73 @@ ALTER TABLE transcripts ADD COLUMN language_probability REAL
            (language_probability >= 0 AND language_probability <= 1));
 """
 
+_MIGRATION_V4 = """
+ALTER TABLE transcription_jobs ADD COLUMN phase TEXT NOT NULL DEFAULT 'queued'
+    CHECK (phase IN ('queued','claiming','loading_model','transcribing','finalizing',
+                     'cancelling','completed'));
+ALTER TABLE transcription_jobs ADD COLUMN settings_json TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE transcription_jobs ADD COLUMN progress_percent REAL DEFAULT 0
+    CHECK (progress_percent IS NULL OR (progress_percent >= 0 AND progress_percent <= 100));
+ALTER TABLE transcription_jobs ADD COLUMN processed_seconds REAL NOT NULL DEFAULT 0
+    CHECK (processed_seconds >= 0);
+ALTER TABLE transcription_jobs ADD COLUMN total_seconds REAL
+    CHECK (total_seconds IS NULL OR total_seconds >= 0);
+ALTER TABLE transcription_jobs ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0
+    CHECK (attempt_count >= 0);
+ALTER TABLE transcription_jobs ADD COLUMN max_attempts INTEGER NOT NULL DEFAULT 3
+    CHECK (max_attempts >= 1);
+ALTER TABLE transcription_jobs ADD COLUMN started_at TEXT;
+ALTER TABLE transcription_jobs ADD COLUMN finished_at TEXT;
+ALTER TABLE transcription_jobs ADD COLUMN cancel_requested_at TEXT;
+ALTER TABLE transcription_jobs ADD COLUMN worker_id TEXT;
+ALTER TABLE transcription_jobs ADD COLUMN lease_expires_at TEXT;
+
+UPDATE transcription_jobs
+SET phase = CASE status
+        WHEN 'pending' THEN 'queued'
+        WHEN 'running' THEN 'transcribing'
+        ELSE 'completed'
+    END,
+    progress_percent = CASE WHEN status = 'succeeded' THEN 100 ELSE 0 END,
+    attempt_count = CASE WHEN status = 'pending' THEN 0 ELSE 1 END,
+    started_at = CASE WHEN status = 'pending' THEN NULL ELSE updated_at END,
+    finished_at = CASE
+        WHEN status IN ('succeeded','failed','cancelled') THEN updated_at
+        ELSE NULL
+    END;
+
+CREATE TABLE transcription_job_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id TEXT NOT NULL REFERENCES transcription_jobs(id) ON DELETE CASCADE,
+    sequence INTEGER NOT NULL CHECK (sequence >= 1),
+    phase TEXT NOT NULL CHECK (
+        phase IN ('queued','claiming','loading_model','transcribing','finalizing',
+                  'cancelling','completed')
+    ),
+    message TEXT NOT NULL CHECK (length(trim(message)) > 0),
+    completed_segments INTEGER NOT NULL DEFAULT 0 CHECK (completed_segments >= 0),
+    processed_seconds REAL NOT NULL DEFAULT 0 CHECK (processed_seconds >= 0),
+    total_seconds REAL CHECK (total_seconds IS NULL OR total_seconds >= 0),
+    percent REAL CHECK (percent IS NULL OR (percent >= 0 AND percent <= 100)),
+    created_at TEXT NOT NULL,
+    UNIQUE (job_id, sequence)
+);
+
+INSERT INTO transcription_job_events
+    (job_id, sequence, phase, message, completed_segments, processed_seconds,
+     total_seconds, percent, created_at)
+SELECT id, 1, phase, 'migrated job state', 0, processed_seconds, total_seconds,
+       progress_percent, updated_at
+FROM transcription_jobs;
+
+CREATE INDEX idx_jobs_queue_claim
+    ON transcription_jobs(status, cancel_requested_at, created_at, id);
+CREATE INDEX idx_jobs_lease
+    ON transcription_jobs(status, lease_expires_at);
+CREATE INDEX idx_job_events_order
+    ON transcription_job_events(job_id, sequence);
+"""
+
 
 class Database:
     def __init__(self, path: str | Path) -> None:
@@ -234,12 +301,17 @@ class Database:
                 connection.executescript(
                     f"BEGIN IMMEDIATE;\n{_MIGRATION_V3}\nPRAGMA user_version = 3;\nCOMMIT;"
                 )
+                version = 3
+            if version < 4:
+                connection.executescript(
+                    f"BEGIN IMMEDIATE;\n{_MIGRATION_V4}\nPRAGMA user_version = 4;\nCOMMIT;"
+                )
 
     @contextmanager
-    def transaction(self) -> Iterator[sqlite3.Connection]:
+    def transaction(self, *, immediate: bool = False) -> Iterator[sqlite3.Connection]:
         with self.connect() as connection:
             try:
-                connection.execute("BEGIN")
+                connection.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
                 yield connection
             except BaseException:
                 connection.rollback()

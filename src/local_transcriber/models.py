@@ -38,6 +38,16 @@ class JobStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+class JobPhase(StrEnum):
+    QUEUED = "queued"
+    CLAIMING = "claiming"
+    LOADING_MODEL = "loading_model"
+    TRANSCRIBING = "transcribing"
+    FINALIZING = "finalizing"
+    CANCELLING = "cancelling"
+    COMPLETED = "completed"
+
+
 @dataclass(frozen=True, slots=True)
 class TranscriptionSettings:
     engine: str = "faster-whisper"
@@ -145,6 +155,18 @@ class TranscriptionJob:
     engine: str
     model_name: str
     status: JobStatus = JobStatus.PENDING
+    phase: JobPhase = JobPhase.QUEUED
+    settings: TranscriptionSettings | None = None
+    progress_percent: float | None = 0.0
+    processed_seconds: float = 0.0
+    total_seconds: float | None = None
+    attempt_count: int = 0
+    max_attempts: int = 3
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    cancel_requested_at: datetime | None = None
+    worker_id: str | None = None
+    lease_expires_at: datetime | None = None
     error_message: str | None = None
     id: str = field(default_factory=new_id)
     created_at: datetime = field(default_factory=utc_now)
@@ -156,6 +178,49 @@ class TranscriptionJob:
         object.__setattr__(self, "model_name", _required(self.model_name, "model name"))
         if not isinstance(self.status, JobStatus):
             object.__setattr__(self, "status", JobStatus(self.status))
+        if not isinstance(self.phase, JobPhase):
+            object.__setattr__(self, "phase", JobPhase(self.phase))
+        if self.progress_percent is not None:
+            if not isfinite(self.progress_percent) or not 0 <= self.progress_percent <= 100:
+                raise ValueError("progress_percent must be finite and between 0 and 100")
+        _non_negative_finite(self.processed_seconds, "processed_seconds")
+        if self.total_seconds is not None:
+            _non_negative_finite(self.total_seconds, "total_seconds")
+        if self.attempt_count < 0:
+            raise ValueError("attempt_count must be non-negative")
+        if self.max_attempts < 1:
+            raise ValueError("max_attempts must be positive")
+
+
+@dataclass(frozen=True, slots=True)
+class JobEvent:
+    job_id: str
+    sequence: int
+    phase: JobPhase
+    message: str
+    completed_segments: int = 0
+    processed_seconds: float = 0.0
+    total_seconds: float | None = None
+    percent: float | None = None
+    created_at: datetime = field(default_factory=utc_now)
+    id: int | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "job_id", _required(self.job_id, "job id"))
+        if self.sequence < 1:
+            raise ValueError("event sequence must be positive")
+        if not isinstance(self.phase, JobPhase):
+            object.__setattr__(self, "phase", JobPhase(self.phase))
+        object.__setattr__(self, "message", _required(self.message, "event message"))
+        if self.completed_segments < 0:
+            raise ValueError("completed_segments must be non-negative")
+        _non_negative_finite(self.processed_seconds, "processed_seconds")
+        if self.total_seconds is not None:
+            _non_negative_finite(self.total_seconds, "total_seconds")
+        if self.percent is not None and (
+            not isfinite(self.percent) or not 0 <= self.percent <= 100
+        ):
+            raise ValueError("event percent must be finite and between 0 and 100")
 
 
 @dataclass(frozen=True, slots=True)

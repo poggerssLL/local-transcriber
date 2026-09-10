@@ -18,6 +18,8 @@ from .media import (
 )
 from .models import (
     ExportedArtifact,
+    JobEvent,
+    JobPhase,
     JobStatus,
     Recording,
     RecordingSearchResult,
@@ -37,6 +39,7 @@ from .models_manager import (
     ModelNotInstalledError,
     ModelStatus,
 )
+from .queueing import TranscriptionQueue, TranscriptionWorker
 from .repository import Repository
 from .transcription import (
     CTranslate2RuntimeProbe,
@@ -47,6 +50,7 @@ from .transcription import (
     ResolvedProfile,
     RuntimeCapabilities,
     RuntimeProfileError,
+    TranscriptionCancelled,
     TranscriptionEngine,
     TranscriptionRequest,
     TranscriptionService,
@@ -60,6 +64,8 @@ __all__ = [
     "ExportFormat",
     "ExportedArtifact",
     "InvalidMediaError",
+    "JobEvent",
+    "JobPhase",
     "JobStatus",
     "MediaImportError",
     "MediaImportSettings",
@@ -85,9 +91,12 @@ __all__ = [
     "TranscriptionJob",
     "TranscriptionMetrics",
     "TranscriptionEngine",
+    "TranscriptionCancelled",
+    "TranscriptionQueue",
     "TranscriptionRequest",
     "TranscriptionService",
     "TranscriptionSettings",
+    "TranscriptionWorker",
     "UnsupportedMediaError",
     "Word",
     "CTranslate2RuntimeProbe",

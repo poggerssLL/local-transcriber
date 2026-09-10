@@ -160,7 +160,9 @@ def test_faster_whisper_adapter_consumes_lazy_segments_and_converts_output(tmp_p
     assert output.language == "pt"
     assert output.language_probability == pytest.approx(0.91)
     assert output.segments[0].words[0].probability == pytest.approx(0.98)
-    assert events[0].completed_segments == 1
+    assert events[-1].completed_segments == 1
+    assert events[-1].processed_seconds == pytest.approx(1.25)
+    assert events[-1].percent < 100
 
 
 def _service_context(tmp_path: Path, *, install_model: bool = True):

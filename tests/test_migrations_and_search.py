@@ -11,7 +11,7 @@ from local_transcriber import (
     Transcript,
     TranscriptionJob,
 )
-from local_transcriber.database import _MIGRATION_V2, _SCHEMA_V1
+from local_transcriber.database import _MIGRATION_V2, _MIGRATION_V3, _SCHEMA_V1
 
 
 def _create_v1_database(path: Path) -> tuple[str, str]:
@@ -59,7 +59,7 @@ def _create_v1_database(path: Path) -> tuple[str, str]:
     return subject_id, recording_id
 
 
-def test_v2_migrates_existing_v1_and_is_idempotent(tmp_path: Path) -> None:
+def test_v4_migrates_existing_v1_and_is_idempotent(tmp_path: Path) -> None:
     path = tmp_path / "existing-v1.sqlite3"
     subject_id, recording_id = _create_v1_database(path)
     database = Database(path)
@@ -67,7 +67,7 @@ def test_v2_migrates_existing_v1_and_is_idempotent(tmp_path: Path) -> None:
     database.initialize()
     database.initialize()
 
-    assert database.schema_version() == SCHEMA_VERSION == 3
+    assert database.schema_version() == SCHEMA_VERSION == 4
     repository = Repository(database)
     assert repository.get_subject(subject_id).name == "Matemática"
     assert repository.get_recording(recording_id).title == "Álgebra linear"
@@ -89,7 +89,7 @@ def test_empty_database_runs_all_migrations(tmp_path: Path) -> None:
     assert fts is not None
 
 
-def test_existing_v2_database_migrates_to_v3(tmp_path: Path) -> None:
+def test_existing_v2_database_migrates_to_v4(tmp_path: Path) -> None:
     path = tmp_path / "existing-v2.sqlite3"
     with sqlite3.connect(path) as connection:
         connection.executescript(_SCHEMA_V1)
@@ -99,8 +99,29 @@ def test_existing_v2_database_migrates_to_v3(tmp_path: Path) -> None:
     database.initialize()
     with database.connect() as connection:
         columns = {row["name"] for row in connection.execute("PRAGMA table_info(transcripts)")}
-    assert database.schema_version() == SCHEMA_VERSION == 3
+    assert database.schema_version() == SCHEMA_VERSION == 4
     assert "language_probability" in columns
+
+
+def test_existing_v3_database_migrates_to_v4(tmp_path: Path) -> None:
+    path = tmp_path / "existing-v3.sqlite3"
+    with sqlite3.connect(path) as connection:
+        connection.executescript(_SCHEMA_V1)
+        connection.executescript(_MIGRATION_V2)
+        connection.executescript(_MIGRATION_V3)
+        connection.execute("PRAGMA user_version = 3")
+    database = Database(path)
+    database.initialize()
+    with database.connect() as connection:
+        job_columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(transcription_jobs)")
+        }
+        events = connection.execute(
+            "SELECT name FROM sqlite_master WHERE name = 'transcription_job_events'"
+        ).fetchone()
+    assert database.schema_version() == SCHEMA_VERSION == 4
+    assert {"phase", "attempt_count", "lease_expires_at", "settings_json"} <= job_columns
+    assert events is not None
 
 
 def test_fts_searches_title_subject_and_transcript_safely(tmp_path: Path) -> None:

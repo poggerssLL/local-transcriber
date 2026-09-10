@@ -7,13 +7,14 @@
 
 O **Local Transcriber** é uma aplicação local para catalogar gravações, executar
 transcrição com Faster Whisper e exportar resultados estruturados sem depender de APIs
-de IA em nuvem. A versão atual é `0.3.0`, usa schema SQLite v3 e concluiu:
+de IA em nuvem. A versão atual é `0.4.0`, usa schema SQLite v4 e concluiu:
 
 1. fundação e persistência;
 2. biblioteca de mídia, pesquisa e exportadores;
-3. Faster Whisper, modelos explícitos e CLI.
+3. Faster Whisper, modelos explícitos e CLI;
+4. fila persistente e worker local.
 
-A próxima etapa planejada é a fila persistente. API, SSE, interface web, diarização,
+A próxima etapa planejada é a API FastAPI com SSE. Interface web, diarização,
 Ollama, microfone ao vivo e Home Assistant ainda não foram implementados.
 
 ## Estrutura do repositório
@@ -40,6 +41,7 @@ Local Transcriber/
 │   ├── exporters.py
 │   ├── models_manager.py
 │   ├── transcription.py
+│   ├── queueing.py
 │   ├── cli.py
 │   └── __main__.py
 └── tests/
@@ -58,6 +60,7 @@ O pacote usa layout `src/`, Python 3.11 ou superior e um único entrypoint insta
 - `exporters.py`: renderiza formatos determinísticos e registra artefatos.
 - `models_manager.py`: lista, verifica e baixa modelos somente mediante confirmação.
 - `transcription.py`: abstrai o engine, resolve perfis e coordena a transcrição.
+- `queueing.py`: enfileira trabalhos e executa o worker local sequencial com leases.
 - `cli.py`: expõe os serviços existentes sem duplicar regras de negócio.
 
 ## Configuração e RuntimePaths
@@ -88,6 +91,8 @@ Os principais modelos são:
 - `Subject`: matéria associada a gravações;
 - `Recording`: metadados, hash, duração e caminho relativo da mídia;
 - `TranscriptionJob`: ciclo `pending`, `running`, `succeeded`, `failed` ou `cancelled`;
+- `JobPhase`: fase operacional separada entre `queued` e `completed`;
+- `JobEvent`: progresso persistente e ordenado por job;
 - `Transcript`: texto, idioma, probabilidade, configurações, métricas e segmentos;
 - `Segment` e `Word`: intervalos temporais ordenados, com probabilidade opcional;
 - `ExportedArtifact`: formato, MIME type, tamanho, hash e caminho relativo;
@@ -98,9 +103,10 @@ probabilidades, hashes, nomes e estados antes da persistência.
 
 SQLite armazena somente metadados. O schema v1 criou o domínio persistente; o v2 adicionou
 configurações, métricas, metadados de exportação e FTS5; o v3 acrescentou a probabilidade
-do idioma detectado. Migrações publicadas são imutáveis, incrementais e testadas em banco
-vazio e existente. Chaves estrangeiras são habilitadas em cada conexão e todo conteúdo
-variável chega ao SQL por parâmetros.
+do idioma detectado. O v4 acrescentou fila, fases, progresso, tentativas, cancelamento,
+posse por lease e eventos ordenados. Migrações publicadas são imutáveis, incrementais e
+testadas em banco vazio e proveniente de cada versão anterior. Chaves estrangeiras são
+habilitadas em cada conexão e todo conteúdo variável chega ao SQL por parâmetros.
 
 ## Biblioteca e inspeção de mídia
 
@@ -170,13 +176,44 @@ gravação catalogada
   → exportações gerenciadas
 ```
 
-Eventos simples e não persistentes informam início, segmentos e conclusão. Eles preparam
-integrações futuras sem implementar uma fila.
+O comando síncrono da Etapa 3 continua disponível. Na fila, `TranscriptionQueue` valida
+gravação, mídia e modelo local e persiste configurações sem executar inferência. O worker
+reivindica um job e chama o mesmo serviço de transcrição.
+
+```text
+pending/queued
+  → reivindicação SQLite com compare-and-set
+  → running/claiming, com worker e lease
+  → loading_model → transcribing → finalizing
+  → publicação transacional
+  → succeeded/completed
+```
+
+Fase, percentual, segundos processados, duração total e eventos sobrevivem a novos
+processos. O percentual permanece abaixo de 100% até a publicação final.
 
 A transcrição, seus segmentos e palavras e a mudança do job para `succeeded` são
 publicados na mesma transação. Falhas não publicam resultado parcial; o job recebe
 `failed` com erro técnico sanitizado. Uma queda abrupta entre filesystem e SQLite ainda
 pode exigir reconciliação futura.
+
+### Concorrência, leases e recuperação
+
+A reivindicação usa `BEGIN IMMEDIATE` e um `UPDATE` condicionado ao estado `pending`.
+Cada worker processa no máximo um job por vez; uma heartbeat renova a lease durante
+operações demoradas. Atualizações e publicação verificam a posse, impedindo um worker
+obsoleto de gravar depois que outro recuperou o job.
+
+Leases expiradas seguem política determinística: cancelamento pendente termina como
+`cancelled`; limite de tentativas atingido termina como `failed`; os demais jobs voltam a
+`pending` e podem reiniciar desde o começo. Como não existe retomada acústica, a execução
+é `at least once`, não “exactly once”. A restrição única de transcrição por job e a
+publicação transacional tornam o resultado final idempotente.
+
+O cancelamento em execução é cooperativo e verificado durante o consumo lazy e antes da
+publicação. Ele pode aguardar carregamento do modelo ou outra operação indivisível.
+`KeyboardInterrupt` e `SystemExit` encerram o worker sem classificação como falha normal;
+a lease expirada permite recuperação posterior. Não existe timeout total padrão.
 
 ## CLI
 
@@ -187,6 +224,8 @@ O entrypoint oferece:
 - `recordings import|list|delete`;
 - `models list|check|download`;
 - `transcribe`;
+- `jobs enqueue|list|show|cancel|retry`;
+- `worker run [--once]`;
 - `transcripts list|show`;
 - `export` para TXT, Markdown, SRT, WebVTT e JSON;
 - `--help` e `--version`.
@@ -198,10 +237,12 @@ A CLI compõe `MediaLibrary`, `Repository`, `ModelManager`, `TranscriptionServic
 
 ### Automatizada e com doubles
 
-A suíte de 48 testes funciona sem GPU, modelo ou rede. Ela cobre configuração, domínio,
-migrações, mídia sintética, pesquisa, exportadores, perfis, ausência de download
-automático, backend injetado, consumo lazy, falhas transacionais e comandos principais
-da CLI. Esses testes validam comportamento determinístico, não qualidade de inferência.
+A suíte de 63 testes funciona sem GPU, modelo ou rede. Ela cobre configuração, domínio,
+migrações v1–v4, mídia sintética, pesquisa, exportadores, perfis, ausência de download
+automático, backend injetado, consumo lazy, reivindicação concorrente, leases, recuperação,
+cancelamento, retry, progresso, publicação idempotente, falhas transacionais, áudio longo
+simulado e comandos principais da CLI. Esses testes validam comportamento determinístico,
+não qualidade de inferência.
 
 ### Execução real
 
@@ -222,23 +263,29 @@ gravação de 1h40. O RTF 0,4778 projetaria aproximadamente 47,8 minutos para es
 mas não constitui medição real de carga longa. Ainda faltam validação ampla de formatos,
 qualidade, desempenho, recuperação operacional e CUDA em configuração compatível.
 
+A Etapa 4 não executou inferência real. Fila, heartbeat, expiração, cancelamento e
+recuperação foram validados com engine falso e relógio injetável. O áudio simulado de duas
+horas confirma ausência de timeout artificial no domínio, não desempenho de carga longa.
+
 ## Limitações e trabalho futuro
 
 - codecs concretos dependem do PyAV/FFmpeg instalado;
 - duplicidade é somente por bytes;
 - não há conversão ou normalização de mídia;
-- não há reconciliação automática após interrupção abrupta;
+- recuperação após crash pode reiniciar toda a inferência e aguarda expiração da lease;
+- cancelamento pode não ser instantâneo em operações indivisíveis;
 - pesquisa não possui ranking ou filtros avançados;
 - reexportação do mesmo formato exige gestão explícita;
 - qualidade foi observada sem gabarito independente, e vocabulário técnico específico
   ainda pode apresentar erros;
 - qualquer adaptação contextual futura exige escopo próprio e avaliação com gabarito;
 - CUDA não foi validada ponta a ponta;
-- fila persistente, API, SSE e interface web ainda não existem;
+- API, SSE e interface web ainda não existem;
 - diarização, Ollama, microfone ao vivo e Home Assistant permanecem fora do MVP.
 
 Consulte [estado atual](PROJECT_STATE.md), [decisões](DECISIONS.md),
 [problemas conhecidos](KNOWN_ISSUES.md), [roadmap](ROADMAP.md) e os relatórios
 [Etapa 1](PHASE_01_FOUNDATION.md), [Etapa 2](PHASE_02_MEDIA_LIBRARY.md),
-[Etapa 3](PHASE_03_WHISPER_AND_CLI.md), [validação 3B](PHASE_03B_REAL_VALIDATION.md) e
-[validação 3C](PHASE_03C_SECOND_REAL_VALIDATION.md).
+[Etapa 3](PHASE_03_WHISPER_AND_CLI.md), [validação 3B](PHASE_03B_REAL_VALIDATION.md),
+[validação 3C](PHASE_03C_SECOND_REAL_VALIDATION.md) e
+[Etapa 4](PHASE_04_PERSISTENT_QUEUE.md).

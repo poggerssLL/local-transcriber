@@ -5,7 +5,9 @@ from __future__ import annotations
 import os
 import re
 from collections.abc import Callable, Iterable
+from contextlib import suppress
 from dataclasses import dataclass, replace
+from datetime import datetime
 from importlib import import_module
 from pathlib import Path
 from time import perf_counter
@@ -13,6 +15,7 @@ from typing import Any, Protocol
 
 from .config import RuntimePaths
 from .models import (
+    JobPhase,
     JobStatus,
     Segment,
     Transcript,
@@ -20,6 +23,7 @@ from .models import (
     TranscriptionMetrics,
     TranscriptionSettings,
     Word,
+    utc_now,
 )
 from .models_manager import ModelManager
 from .repository import Repository
@@ -27,6 +31,10 @@ from .repository import Repository
 
 class RuntimeProfileError(RuntimeError):
     """The requested execution profile cannot run on this installation."""
+
+
+class TranscriptionCancelled(Exception):
+    """Cooperative cancellation requested for a transcription job."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,9 +128,17 @@ class ProfileResolver:
 
 @dataclass(frozen=True, slots=True)
 class ProgressEvent:
-    stage: str
+    phase: str
     message: str
     completed_segments: int = 0
+    processed_seconds: float = 0.0
+    total_seconds: float | None = None
+    percent: float | None = None
+
+    @property
+    def stage(self) -> str:
+        """Backward-compatible alias retained for Stage 3 observers."""
+        return self.phase
 
 
 ProgressCallback = Callable[[ProgressEvent], None]
@@ -168,6 +184,8 @@ class FasterWhisperEngine:
         if settings.device is None or settings.compute_type is None:
             raise ValueError("transcription settings must contain a resolved runtime profile")
         model = self._model_factory(request.model_path, settings.device, settings.compute_type)
+        if progress is not None:
+            progress(ProgressEvent("loading_model", "model loaded"))
         raw_segments, info = model.transcribe(
             str(request.media_path),
             language=settings.language,
@@ -175,9 +193,17 @@ class FasterWhisperEngine:
             word_timestamps=settings.word_timestamps,
             vad_filter=settings.vad_filter,
         )
-        segments = self._consume_segments(raw_segments, progress)
-        text = " ".join(segment.text for segment in segments).strip()
         duration = float(getattr(info, "duration", 0.0) or 0.0)
+        if progress is not None:
+            progress(
+                ProgressEvent(
+                    "transcribing",
+                    "transcription started",
+                    total_seconds=duration or None,
+                )
+            )
+        segments = self._consume_segments(raw_segments, progress, duration or None)
+        text = " ".join(segment.text for segment in segments).strip()
         if duration <= 0 and segments:
             duration = max(segment.end_seconds for segment in segments)
         language = getattr(info, "language", None) or settings.language
@@ -186,7 +212,9 @@ class FasterWhisperEngine:
 
     @staticmethod
     def _consume_segments(
-        raw_segments: Iterable[Any], progress: ProgressCallback | None
+        raw_segments: Iterable[Any],
+        progress: ProgressCallback | None,
+        total_seconds: float | None = None,
     ) -> tuple[Segment, ...]:
         converted: list[Segment] = []
         for raw_segment in raw_segments:
@@ -215,7 +243,20 @@ class FasterWhisperEngine:
                 )
             )
             if progress is not None:
-                progress(ProgressEvent("segment", "segment decoded", len(converted)))
+                processed = converted[-1].end_seconds
+                percent = None
+                if total_seconds:
+                    percent = min(99.999, processed / total_seconds * 100)
+                progress(
+                    ProgressEvent(
+                        "transcribing",
+                        "segment decoded",
+                        len(converted),
+                        processed,
+                        total_seconds,
+                        percent,
+                    )
+                )
         return tuple(converted)
 
     @staticmethod
@@ -243,6 +284,7 @@ class TranscriptionService:
         profiles: ProfileResolver | None = None,
         engine_factory: EngineFactory | None = None,
         clock: Callable[[], float] = perf_counter,
+        now: Callable[[], datetime] = utc_now,
     ) -> None:
         self.repository = repository
         self.paths = paths
@@ -250,6 +292,7 @@ class TranscriptionService:
         self.profiles = profiles or ProfileResolver()
         self.engine_factory = engine_factory or (lambda _profile: FasterWhisperEngine())
         self.clock = clock
+        self.now = now
 
     def transcribe(
         self,
@@ -273,15 +316,17 @@ class TranscriptionService:
                 recording_id=recording.id,
                 engine=effective.engine,
                 model_name=effective.model_name,
+                settings=effective,
+                total_seconds=recording.duration_seconds,
             )
         )
         self.repository.update_job_status(job.id, JobStatus.RUNNING)
         started = self.clock()
         try:
-            if progress is not None:
-                progress(ProgressEvent("started", resolved.reason))
+            self._notify(progress, ProgressEvent("started", resolved.reason))
             output = self.engine_factory(resolved).transcribe(
-                TranscriptionRequest(media_path, model_path, effective), progress
+                TranscriptionRequest(media_path, model_path, effective),
+                lambda event: self._notify(progress, event),
             )
             elapsed = max(0.0, self.clock() - started)
             duration = output.audio_duration_seconds or recording.duration_seconds or 0.0
@@ -301,18 +346,173 @@ class TranscriptionService:
                 ),
             )
             self.repository.complete_transcription(job.id, transcript)
-        except BaseException as error:
+        except Exception as error:
             message = self._sanitize_error(error, media_path, model_path)
             try:
                 self.repository.update_job_status(job.id, JobStatus.FAILED, error_message=message)
-            except BaseException:
+            except Exception:
                 pass
             raise
-        if progress is not None:
-            progress(ProgressEvent("completed", "transcript published", len(output.segments)))
+        self._notify(
+            progress,
+            ProgressEvent(
+                "completed",
+                "transcript published",
+                len(output.segments),
+                duration,
+                duration,
+                100.0,
+            ),
+        )
         return transcript
 
-    def _sanitize_error(self, error: BaseException, *paths: Path) -> str:
+    def process_claimed_job(
+        self,
+        job_id: str,
+        worker_id: str,
+        *,
+        lease_seconds: float = 60.0,
+        progress: ProgressCallback | None = None,
+    ) -> Transcript | None:
+        """Execute one claimed job; failures and cancellation are persisted."""
+        job = self.repository.get_job(job_id)
+        if job is None:
+            raise KeyError(f"job not found: {job_id}")
+        if job.status is not JobStatus.RUNNING or job.worker_id != worker_id:
+            raise RuntimeError("job is not owned by this worker")
+        requested = job.settings or TranscriptionSettings(
+            engine=job.engine, model_name=job.model_name
+        )
+        runtime_paths: list[Path] = []
+        started = self.clock()
+        try:
+            self._raise_if_cancelled(job_id, worker_id)
+            recording = self.repository.get_recording(job.recording_id)
+            if recording is None:
+                raise KeyError(f"recording not found: {job.recording_id}")
+            model_path = self.models.require_installed(requested.model_name)
+            media_path = self.paths.resolve_relative(recording.relative_path)
+            runtime_paths.extend((media_path, model_path))
+            if not media_path.is_file():
+                raise FileNotFoundError("managed media file is missing")
+            resolved = self.profiles.resolve(requested.profile)
+            effective = replace(
+                requested, device=resolved.device, compute_type=resolved.compute_type
+            )
+            total = recording.duration_seconds
+            self.repository.update_claimed_job(
+                job_id,
+                worker_id,
+                phase=JobPhase.LOADING_MODEL,
+                message=resolved.reason,
+                total_seconds=total,
+                percent=0.0,
+                now=self.now(),
+                lease_seconds=lease_seconds,
+            )
+
+            def persist_event(event: ProgressEvent) -> None:
+                self._raise_if_cancelled(job_id, worker_id)
+                event_total = event.total_seconds or total
+                event_percent = event.percent
+                if event_percent is None and event_total and event.processed_seconds:
+                    event_percent = min(99.999, event.processed_seconds / event_total * 100)
+                phase = (
+                    JobPhase.LOADING_MODEL
+                    if event.phase == "loading_model"
+                    else JobPhase.TRANSCRIBING
+                )
+                try:
+                    self.repository.update_claimed_job(
+                        job_id,
+                        worker_id,
+                        phase=phase,
+                        message=event.message,
+                        completed_segments=event.completed_segments,
+                        processed_seconds=event.processed_seconds,
+                        total_seconds=event_total,
+                        percent=event_percent,
+                        now=self.now(),
+                        lease_seconds=lease_seconds,
+                    )
+                except RuntimeError:
+                    self._raise_if_cancelled(job_id, worker_id)
+                    raise
+                self._notify(progress, event)
+
+            output = self.engine_factory(resolved).transcribe(
+                TranscriptionRequest(media_path, model_path, effective), persist_event
+            )
+            self._raise_if_cancelled(job_id, worker_id)
+            elapsed = max(0.0, self.clock() - started)
+            duration = output.audio_duration_seconds or total or 0.0
+            self.repository.update_claimed_job(
+                job_id,
+                worker_id,
+                phase=JobPhase.FINALIZING,
+                message="publishing transcript",
+                completed_segments=len(output.segments),
+                processed_seconds=duration,
+                total_seconds=duration,
+                percent=99.999,
+                now=self.now(),
+                lease_seconds=lease_seconds,
+            )
+            transcript = Transcript(
+                recording_id=recording.id,
+                job_id=job_id,
+                language=output.language,
+                language_probability=output.language_probability,
+                text=output.text,
+                segments=output.segments,
+                settings=effective,
+                metrics=TranscriptionMetrics(
+                    audio_duration_seconds=duration,
+                    processing_duration_seconds=elapsed,
+                    segment_count=len(output.segments),
+                    word_count=sum(len(segment.words) for segment in output.segments),
+                ),
+            )
+            published = self.repository.complete_transcription(
+                job_id, transcript, worker_id=worker_id, now=self.now()
+            )
+        except TranscriptionCancelled:
+            self.repository.finish_claimed_cancel(job_id, worker_id, now=self.now())
+            return None
+        except Exception as error:
+            try:
+                if self.repository.claimed_job_cancel_requested(job_id, worker_id):
+                    self.repository.finish_claimed_cancel(job_id, worker_id, now=self.now())
+                    return None
+            except (KeyError, RuntimeError):
+                pass
+            message = self._sanitize_error(error, *runtime_paths)
+            self.repository.fail_claimed_job(job_id, worker_id, message, now=self.now())
+            return None
+        self._notify(
+            progress,
+            ProgressEvent(
+                "completed",
+                "transcript published",
+                len(published.segments),
+                duration,
+                duration,
+                100.0,
+            ),
+        )
+        return published
+
+    def _raise_if_cancelled(self, job_id: str, worker_id: str) -> None:
+        if self.repository.claimed_job_cancel_requested(job_id, worker_id):
+            raise TranscriptionCancelled("transcription cancellation requested")
+
+    @staticmethod
+    def _notify(progress: ProgressCallback | None, event: ProgressEvent) -> None:
+        if progress is not None:
+            with suppress(Exception):
+                progress(event)
+
+    def _sanitize_error(self, error: Exception, *paths: Path) -> str:
         message = _single_line(error)
         for path in (self.paths.root, *paths):
             message = message.replace(str(path), "<runtime>")
