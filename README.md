@@ -73,10 +73,11 @@ No Windows, o runtime atual do Faster Whisper/CTranslate2 exige CUDA 12, cuBLAS 
 cuDNN 9. A presença de uma GPU ou de seu driver não basta. Use `config check` para o
 diagnóstico local. Nenhum binário NVIDIA é obtido pela aplicação.
 
-Um smoke test real posterior à Etapa 3 confirmou o modelo `small` multilíngue em CPU
-`int8`, com português, VAD, timestamps por palavra, métricas, cinco exportações e
-persistência entre processos. Essa evidência é limitada a uma gravação curta sem gabarito
-textual independente; CUDA e a validação ampla continuam pendentes.
+Duas validações reais posteriores à Etapa 3 confirmaram o modelo `small` multilíngue em
+CPU `int8`, com português, VAD, timestamps por palavra, métricas, cinco exportações e
+persistência entre processos. Os RTFs observados foram 1,612 e 0,4778. Essas evidências
+continuam limitadas a duas gravações curtas sem gabarito textual independente; desempenho
+em cargas longas, CUDA e a validação ampla permanecem pendentes para a Etapa 7.
 
 ## Contexto para contribuidores
 
@@ -91,3 +92,4 @@ textual independente; CUDA e a validação ampla continuam pendentes.
 - [Biblioteca de mídia e exportadores](docs/PHASE_02_MEDIA_LIBRARY.md): relatório histórico da Etapa 2.
 - [Faster Whisper e CLI](docs/PHASE_03_WHISPER_AND_CLI.md): relatório histórico da Etapa 3.
 - [Validação real 3B](docs/PHASE_03B_REAL_VALIDATION.md): smoke test posterior da Etapa 3.
+- [Validação real 3C](docs/PHASE_03C_SECOND_REAL_VALIDATION.md): segunda execução real da Etapa 3.

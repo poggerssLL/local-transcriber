@@ -146,8 +146,8 @@ validada usa Faster Whisper 1.2.1, CTranslate2 4.8.2 e PyAV 16.1.0.
   o motivo.
 
 No Windows, a sondagem verifica CTranslate2 e as bibliotecas necessárias. A presença da
-GPU não prova disponibilidade de CUDA/cuDNN. O smoke test real 3B validou apenas CPU
-`int8`; CUDA continua sem validação ponta a ponta.
+GPU não prova disponibilidade de CUDA/cuDNN. As validações reais 3B e 3C validaram apenas
+CPU `int8`; CUDA continua sem validação ponta a ponta.
 
 ## Abstração e serviço de transcrição
 
@@ -205,15 +205,22 @@ da CLI. Esses testes validam comportamento determinístico, não qualidade de in
 
 ### Execução real
 
-O smoke test 3B posterior à Etapa 3 baixou explicitamente o modelo `small` multilíngue e
-executou uma gravação curta em português com CPU `int8`, VAD e timestamps por palavra.
-O job concluiu, gerou segmentos e palavras, persistiu métricas, produziu cinco formatos
-e foi recuperado em novos processos. Foram observados alguns erros linguísticos, mas não
-havia gabarito textual independente e nenhuma taxa de precisão foi calculada. Nenhum
-defeito de implementação foi identificado.
+As validações 3B e 3C executaram duas gravações curtas em português com o modelo `small`
+multilíngue, CPU `int8`, VAD e timestamps por palavra. Em ambas, o job concluiu, gerou
+segmentos e palavras, persistiu métricas, produziu os cinco formatos e foi recuperado em
+novos processos. A primeira execução registrou RTF 1,612. A segunda registrou RTF 0,4778,
+aproximadamente 2,09 vezes mais rápida que tempo real, com pico aproximado de working set
+de 709,9 MiB. Caches, aquecimento, conteúdo e duração podem influenciar essa diferença.
 
-Essa evidência não conclui a Etapa 7: faltam validação ampla de formatos, qualidade,
-desempenho, recuperação operacional e CUDA em configuração compatível.
+Na segunda execução, a estrutura temporal e os números principais foram validados, mas
+houve erros em vocabulário técnico específico. Nenhuma das amostras possuía gabarito
+textual independente, portanto nenhuma taxa de precisão foi calculada. Nenhum defeito de
+implementação foi identificado.
+
+Essa evidência não conclui a Etapa 7: duas amostras curtas não garantem desempenho em uma
+gravação de 1h40. O RTF 0,4778 projetaria aproximadamente 47,8 minutos para essa duração,
+mas não constitui medição real de carga longa. Ainda faltam validação ampla de formatos,
+qualidade, desempenho, recuperação operacional e CUDA em configuração compatível.
 
 ## Limitações e trabalho futuro
 
@@ -223,7 +230,9 @@ desempenho, recuperação operacional e CUDA em configuração compatível.
 - não há reconciliação automática após interrupção abrupta;
 - pesquisa não possui ranking ou filtros avançados;
 - reexportação do mesmo formato exige gestão explícita;
-- qualidade foi observada sem gabarito independente;
+- qualidade foi observada sem gabarito independente, e vocabulário técnico específico
+  ainda pode apresentar erros;
+- qualquer adaptação contextual futura exige escopo próprio e avaliação com gabarito;
 - CUDA não foi validada ponta a ponta;
 - fila persistente, API, SSE e interface web ainda não existem;
 - diarização, Ollama, microfone ao vivo e Home Assistant permanecem fora do MVP.
@@ -231,4 +240,5 @@ desempenho, recuperação operacional e CUDA em configuração compatível.
 Consulte [estado atual](PROJECT_STATE.md), [decisões](DECISIONS.md),
 [problemas conhecidos](KNOWN_ISSUES.md), [roadmap](ROADMAP.md) e os relatórios
 [Etapa 1](PHASE_01_FOUNDATION.md), [Etapa 2](PHASE_02_MEDIA_LIBRARY.md),
-[Etapa 3](PHASE_03_WHISPER_AND_CLI.md) e [validação 3B](PHASE_03B_REAL_VALIDATION.md).
+[Etapa 3](PHASE_03_WHISPER_AND_CLI.md), [validação 3B](PHASE_03B_REAL_VALIDATION.md) e
+[validação 3C](PHASE_03C_SECOND_REAL_VALIDATION.md).

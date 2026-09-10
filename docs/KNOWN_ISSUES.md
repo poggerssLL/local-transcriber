@@ -53,14 +53,26 @@ só, uma tarefa autorizada; qualquer mudança continua dependente do escopo soli
 
 ## Validação real ainda parcial
 
-- Descrição: um smoke test real confirmou o modelo `small` em CPU `int8`, mas usou apenas
-  uma gravação curta em português e não possuía gabarito textual independente.
+- Descrição: duas validações reais confirmaram o modelo `small` em CPU `int8`, mas usaram
+  apenas gravações curtas em português e não possuíam gabarito textual independente.
 - Impacto: o fluxo real está comprovado, porém qualidade, precisão, desempenho em cargas
   maiores e variedade de mídia ainda não foram caracterizados.
 - Situação atual: job, segmentos, palavras, métricas, exportações e persistência foram
-  verificados; alguns erros linguísticos foram observados e nenhuma taxa de precisão foi calculada.
+  verificados. Os RTFs observados foram 1,612 e 0,4778; essa variação e duas amostras
+  curtas não caracterizam cargas longas. Nenhuma taxa de precisão foi calculada.
 - Possível direção futura: executar uma matriz sanitizada de formatos, durações e gabaritos.
 - Fase provável: Etapa 7, integração e validação real.
+
+## Vocabulário técnico específico
+
+- Descrição: a segunda validação real apresentou erros em vocabulário técnico específico.
+- Impacto: termos especializados podem ser transcritos incorretamente mesmo quando o
+  fluxo, os números principais e a estrutura temporal estão corretos.
+- Situação atual: a limitação foi observada sem gabarito textual independente e não indica
+  falha de implementação no fluxo da Etapa 3.
+- Possível direção futura: qualquer adaptação contextual deve ter escopo próprio e ser
+  avaliada contra gabarito independente, sem inferir precisão a partir das amostras atuais.
+- Fase provável: não definida no roadmap atual.
 
 ## Runtime CUDA incompleto no notebook verificado
 
