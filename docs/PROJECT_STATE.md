@@ -1,34 +1,36 @@
 # Estado atual do projeto
 
-> Fotografia verificada em 2026-09-10 após a correção complementar 5B. Atualize este documento ao fim de cada fase;
+> Fotografia verificada em 2026-09-10 após a Etapa 6. Atualize este documento ao fim de cada fase;
 > não reescreva os relatórios históricos de fases concluídas.
 
 O **Local Transcriber** é uma aplicação local para catalogar gravações e persistir o
 ciclo de vida de transcrições. A arquitetura atual é um pacote Python com modelos de
 domínio, biblioteca de mídia, engine desacoplado, fila persistente, worker local, CLI,
-API FastAPI restrita ao localhost, eventos SSE, exportadores determinísticos e
+API FastAPI restrita ao localhost, interface web local, eventos SSE, exportadores determinísticos e
 persistência de metadados em SQLite; mídias, modelos e demais dados de runtime ficam fora
 do repositório.
 
-- Versão do pacote: `0.5.1`.
+- Versão do pacote: `0.6.0`.
 - Schema SQLite: v4.
 - Etapas concluídas: 1, fundação e persistência; 2, biblioteca de mídia e exportadores;
   3, Faster Whisper, gerenciamento explícito de modelos e CLI; 4, fila persistente;
-  5, API HTTP local e SSE.
+  5, API HTTP local e SSE; 6, interface web local.
 - Funcionalidades disponíveis: configuração de runtime, catálogo de matérias e gravações,
   importação e inspeção de mídia por PyAV, duplicidade exata por SHA-256, pesquisa FTS5,
   persistência do domínio, transcrição síncrona, enfileiramento, worker local sequencial,
   progresso e eventos persistentes, cancelamento, retry, recuperação por lease e exportação
   TXT, Markdown, SRT, WebVTT e JSON; API versionada sob `/api`, upload progressivo,
   streaming de mídia com Range, downloads de exportações e replay de eventos SSE por
-  `Last-Event-ID`; a especificação OpenAPI JSON é local e não existe visualizador HTML;
-  um único entrypoint expõe esses serviços.
+  `Last-Event-ID`; interface web sem build e sem dependência de CDN para painel,
+  matérias, biblioteca, fila, leitura, exportação e modelos; a especificação OpenAPI JSON
+  continua local e não existe visualizador HTML dos contratos; um único entrypoint expõe
+  esses serviços.
 - Dependências validadas: PyAV 16.1.0, Faster Whisper 1.2.1, CTranslate2 4.8.2,
   FastAPI 0.116.2, Starlette 0.48.0, Uvicorn 0.52.4 e python-multipart 0.0.32.
-- Última validação registrada nesta fotografia: 95 testes aprovados e inicialização HTTP
-  real em `127.0.0.1`.
+- Última validação registrada nesta fotografia: 101 testes aprovados, inicialização HTTP
+  real em `127.0.0.1` e inspeção visual no navegador com dados sintéticos temporários.
 - Commit funcional verificado da Etapa 3: `b28da0480bee08f533a338001284b36e2a6565bc`.
-- Próxima etapa: Etapa 6, interface web vanilla sem CDN.
+- Próxima etapa: Etapa 7, integração e validação real abrangente do MVP.
 - `local-transcriber serve` aceita somente `127.0.0.1` e um consumidor de fila por
   runtime. `Host` e `Origin` são validados, respostas não expõem caminhos físicos e a API
   não inicia downloads de modelos.
@@ -68,4 +70,5 @@ Referências: [contrato](PROJECT_CONTRACT.md), [arquitetura viva](FOUNDATION.md)
 [Etapa 4](PHASE_04_PERSISTENT_QUEUE.md),
 [correção complementar 4B](PHASE_04B_LEASE_RELIABILITY.md) e
 [Etapa 5](PHASE_05_LOCAL_API_AND_SSE.md) e
-[correção complementar 5B](PHASE_05B_OFFLINE_DOCS_AND_INCREMENTAL_SSE.md).
+[correção complementar 5B](PHASE_05B_OFFLINE_DOCS_AND_INCREMENTAL_SSE.md) e
+[Etapa 6](PHASE_06_WEB_INTERFACE.md).

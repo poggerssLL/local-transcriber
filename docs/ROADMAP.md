@@ -5,8 +5,8 @@
 3. Engine Faster Whisper e CLIs — concluída.
 4. Fila persistente — concluída.
 5. API FastAPI e SSE — concluída.
-6. Interface web — próxima etapa.
-7. Integração e validação real.
+6. Interface web — concluída.
+7. Integração e validação real — próxima etapa.
 8. Futuras fases de diarização, Ollama, tempo real e Home Assistant.
 
 Após a Etapa 3, duas validações reais antecipadas confirmaram o fluxo CPU `int8` com
@@ -27,3 +27,9 @@ A Etapa 5 expôs os serviços locais sob `/api`, com upload progressivo, fila ob
 streaming controlado de mídia e exportações, SSE persistente com replay e worker integrado
 ao ciclo de vida. A validação usou TestClient, mídia sintética, engine falso e runtime
 temporário; não executou inferência real nem baixou modelos.
+
+A Etapa 6 adicionou a interface web vanilla servida pela própria aplicação, sem build,
+CDN ou serviço externo. Painel, matérias, biblioteca, configuração de transcrição, fila,
+leitura sincronizada, exportações e modelos usam a API da mesma origem. Testes automatizados
+e inspeção real no navegador usaram somente mídia, jobs e transcrições sintéticos; a
+validação real abrangente permanece na Etapa 7.

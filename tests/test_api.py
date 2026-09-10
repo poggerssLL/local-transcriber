@@ -152,7 +152,7 @@ def _terminal_job(client: TestClient) -> str:
 def test_health_version_capabilities_and_openapi(client: TestClient) -> None:
     assert client.get("/api/health").json() == {
         "status": "ok",
-        "version": "0.5.1",
+        "version": "0.6.0",
         "schema_version": 4,
     }
     assert client.get("/api/version").json()["api_version"] == "1"
@@ -160,7 +160,7 @@ def test_health_version_capabilities_and_openapi(client: TestClient) -> None:
     assert capabilities["model_download_via_api"] is False
     assert capabilities["sse_replay"] is True
     openapi = client.get("/api/openapi.json").json()
-    assert openapi["info"]["version"] == "0.5.1"
+    assert openapi["info"]["version"] == "0.6.0"
     assert all(path.startswith("/api/") for path in openapi["paths"])
 
 

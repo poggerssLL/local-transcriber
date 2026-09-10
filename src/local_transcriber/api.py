@@ -21,6 +21,7 @@ from urllib.parse import urlsplit
 from fastapi import FastAPI, File, Form, Header, Query, Request, Response, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
 from .config import AppConfig
@@ -55,6 +56,7 @@ from .transcription import CTranslate2RuntimeProbe, EngineFactory, ProfileResolv
 
 PACKAGE_NAME = "local-transcriber"
 API_PREFIX = "/api"
+WEB_ROOT = Path(__file__).with_name("web")
 LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "testserver"})
 MULTIPART_OVERHEAD_BYTES = 1024 * 1024
 TERMINAL_STATUSES = frozenset({JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED})
@@ -141,6 +143,8 @@ class RuntimeResponse(ApiModel):
     cuda_compute_types: list[str]
     cuda_available: bool
     cuda_error: str | None
+    recommended_profile: str
+    worker_running: bool
 
 
 class JobCreate(ApiModel):
@@ -388,7 +392,11 @@ def _security_headers(response: Response) -> None:
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
-    response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'none'; base-uri 'none'; connect-src 'self'; font-src 'self'; "
+        "form-action 'self'; frame-ancestors 'none'; img-src 'self'; media-src 'self'; "
+        "object-src 'none'; script-src 'self'; style-src 'self'"
+    )
     response.headers["Cache-Control"] = "no-store"
 
 
@@ -625,6 +633,8 @@ def create_app(
     app.state.worker_controller = controller
     app.state.worker_lock = worker_lock
 
+    app.mount("/assets", StaticFiles(directory=WEB_ROOT), name="web-assets")
+
     @app.middleware("http")
     async def enforce_local_http(request: Request, call_next: Callable):  # type: ignore[type-arg]
         server = request.scope.get("server")
@@ -719,6 +729,10 @@ def create_app(
             status="ok", version=version(PACKAGE_NAME), schema_version=database.schema_version()
         )
 
+    @app.get("/", include_in_schema=False, response_class=FileResponse)
+    def web_interface() -> FileResponse:
+        return FileResponse(WEB_ROOT / "index.html", media_type="text/html")
+
     @app.get(f"{API_PREFIX}/capabilities", response_model=CapabilitiesResponse)
     def capabilities() -> CapabilitiesResponse:
         return CapabilitiesResponse(
@@ -808,18 +822,21 @@ def create_app(
     @app.get(f"{API_PREFIX}/runtime", response_model=RuntimeResponse)
     def runtime_status() -> RuntimeResponse:
         inspected = CTranslate2RuntimeProbe().inspect()
+        cuda_available = (
+            inspected.cuda_device_count > 0 and "int8_float16" in inspected.cuda_compute_types
+        )
         return RuntimeResponse(
             cpu_compute_types=sorted(inspected.cpu_compute_types),
             cuda_device_count=inspected.cuda_device_count,
             cuda_compute_types=sorted(inspected.cuda_compute_types),
-            cuda_available=(
-                inspected.cuda_device_count > 0 and "int8_float16" in inspected.cuda_compute_types
-            ),
+            cuda_available=cuda_available,
             cuda_error=(
                 None
                 if inspected.cuda_error is None
                 else _safe_message(inspected.cuda_error, app_config.paths.root)
             ),
+            recommended_profile="cuda" if cuda_available else "cpu",
+            worker_running=controller.thread.is_alive(),
         )
 
     @app.get(f"{API_PREFIX}/jobs", response_model=list[JobResponse])

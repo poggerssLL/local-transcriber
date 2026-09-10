@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>Local Transcriber</title>
+    <link rel="stylesheet" href="/assets/styles.css">
+    <script type="module" src="/assets/app.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Pular para o conteúdo</a>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Navegação principal">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">LT</span>
+          <div>
+            <strong>Local Transcriber</strong>
+            <span>Área de estudo local</span>
+          </div>
+        </div>
+        <nav class="primary-nav" aria-label="Seções">
+          <a href="#painel" data-view="painel" aria-current="page">
+            <span aria-hidden="true">▦</span> Painel
+          </a>
+          <a href="#materias" data-view="materias">
+            <span aria-hidden="true">▤</span> Matérias
+          </a>
+          <a href="#biblioteca" data-view="biblioteca">
+            <span aria-hidden="true">▥</span> Biblioteca
+          </a>
+          <a href="#fila" data-view="fila">
+            <span aria-hidden="true">◷</span> Fila
+          </a>
+          <a href="#leitura" data-view="leitura">
+            <span aria-hidden="true">¶</span> Leitura
+          </a>
+          <a href="#modelos" data-view="modelos">
+            <span aria-hidden="true">◫</span> Modelos
+          </a>
+        </nav>
+        <div class="sidebar-footer">
+          <span id="sidebar-version">Versão —</span>
+          <span>Dados somente neste computador</span>
+        </div>
+      </aside>
+
+      <main id="main-content" tabindex="-1">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow" id="view-context">Visão geral</p>
+            <h1 id="view-title">Painel</h1>
+          </div>
+          <div class="service-state" id="service-state" data-state="loading">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span id="service-state-text">Verificando serviço…</span>
+          </div>
+        </header>
+
+        <div id="connection-banner" class="notice notice-error" role="alert" hidden>
+          <div>
+            <strong>Sem conexão com o serviço local</strong>
+            <p>Confirme se o servidor continua aberto e tente novamente.</p>
+          </div>
+          <button id="retry-connection" type="button" class="button button-secondary">
+            Tentar novamente
+          </button>
+        </div>
+
+        <section id="view-painel" class="view" aria-labelledby="painel-heading">
+          <h2 id="painel-heading" class="sr-only">Painel</h2>
+          <div class="status-grid" aria-label="Estado do sistema">
+            <article class="status-card">
+              <span>Serviço</span>
+              <strong id="dashboard-service">Carregando…</strong>
+              <small id="dashboard-schema">Schema —</small>
+            </article>
+            <article class="status-card">
+              <span>Worker</span>
+              <strong id="dashboard-worker">Carregando…</strong>
+              <small>Fila local sequencial</small>
+            </article>
+            <article class="status-card">
+              <span>Perfil automático</span>
+              <strong id="dashboard-profile">Carregando…</strong>
+              <small id="dashboard-runtime">Verificando runtime</small>
+            </article>
+            <article class="status-card">
+              <span>Modelos instalados</span>
+              <strong id="dashboard-models">Carregando…</strong>
+              <small>Download somente pela CLI</small>
+            </article>
+          </div>
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Atividade</p>
+              <h2>Jobs recentes</h2>
+            </div>
+            <a class="button button-quiet" href="#fila" data-view-link="fila">Ver toda a fila</a>
+          </div>
+          <div id="recent-jobs" class="data-panel" aria-busy="true"></div>
+        </section>
+
+        <section id="view-materias" class="view" aria-labelledby="materias-heading" hidden>
+          <div class="page-intro">
+            <div>
+              <h2 id="materias-heading" class="sr-only">Matérias</h2>
+              <p>Use matérias para agrupar e filtrar suas aulas.</p>
+            </div>
+          </div>
+          <div class="split-layout split-layout-narrow">
+            <form id="subject-form" class="form-panel" novalidate>
+              <h3>Nova matéria</h3>
+              <div class="field">
+                <label for="subject-name">Nome</label>
+                <input id="subject-name" name="name" maxlength="200" required
+                       autocomplete="off" placeholder="Ex.: Redes de Computadores">
+              </div>
+              <button class="button button-primary" type="submit">Criar matéria</button>
+            </form>
+            <div class="data-panel">
+              <div class="panel-title-row">
+                <h3>Matérias cadastradas</h3>
+                <span id="subject-count" class="count-badge">0</span>
+              </div>
+              <ul id="subject-list" class="plain-list" aria-live="polite"></ul>
+            </div>
+          </div>
+        </section>
+
+        <section id="view-biblioteca" class="view" aria-labelledby="biblioteca-heading" hidden>
+          <div class="page-intro">
+            <div>
+              <h2 id="biblioteca-heading" class="sr-only">Biblioteca</h2>
+              <p>Importe, encontre e abra suas gravações.</p>
+            </div>
+          </div>
+          <div class="split-layout">
+            <form id="upload-form" class="form-panel" enctype="multipart/form-data" novalidate>
+              <div class="panel-title-row">
+                <h3>Importar gravação</h3>
+                <span class="local-badge">Local</span>
+              </div>
+              <div class="field">
+                <label for="upload-file">Áudio ou vídeo</label>
+                <input id="upload-file" name="file" type="file" required
+                       accept=".wav,.mp3,.flac,.m4a,.ogg,.mp4,.mkv,.webm,audio/*,video/*">
+                <small id="upload-limit">WAV, MP3, FLAC, M4A, OGG, MP4, MKV ou WebM.</small>
+              </div>
+              <div class="field">
+                <label for="upload-title">Título da aula</label>
+                <input id="upload-title" name="title" maxlength="500" required
+                       autocomplete="off">
+              </div>
+              <div class="field">
+                <label for="upload-subject">Matéria</label>
+                <select id="upload-subject" name="subject_id" required></select>
+              </div>
+              <div class="field">
+                <label for="upload-date">Data da aula</label>
+                <input id="upload-date" name="lesson_date" type="date" required>
+              </div>
+              <button id="upload-submit" class="button button-primary" type="submit">
+                Importar arquivo
+              </button>
+              <progress id="upload-progress" class="task-progress" hidden></progress>
+              <p id="upload-status" class="form-status" role="status"></p>
+            </form>
+
+            <div class="library-area">
+              <form id="search-form" class="toolbar" role="search">
+                <div class="field field-search">
+                  <label class="sr-only" for="search-query">Pesquisar biblioteca</label>
+                  <input id="search-query" type="search" name="q"
+                         placeholder="Pesquisar título, matéria ou transcrição">
+                </div>
+                <div class="field field-filter">
+                  <label class="sr-only" for="subject-filter">Filtrar por matéria</label>
+                  <select id="subject-filter" name="subject"></select>
+                </div>
+                <button class="button button-secondary" type="submit">Pesquisar</button>
+              </form>
+              <p id="library-summary" class="result-summary" aria-live="polite"></p>
+              <div class="table-wrap data-panel" id="recordings-panel" aria-busy="true">
+                <table>
+                  <caption class="sr-only">Gravações da biblioteca</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Aula</th>
+                      <th scope="col">Matéria</th>
+                      <th scope="col">Mídia</th>
+                      <th scope="col">Estado</th>
+                      <th scope="col"><span class="sr-only">Ações</span></th>
+                    </tr>
+                  </thead>
+                  <tbody id="recording-rows"></tbody>
+                </table>
+                <div id="recordings-empty" class="empty-state" hidden>
+                  <strong>Nenhuma gravação encontrada</strong>
+                  <p>Importe uma aula ou ajuste os filtros da biblioteca.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="view-fila" class="view" aria-labelledby="fila-heading" hidden>
+          <div class="page-intro">
+            <div>
+              <h2 id="fila-heading" class="sr-only">Fila de transcrição</h2>
+              <p>O progresso persiste mesmo se esta página for recarregada.</p>
+            </div>
+            <button id="refresh-jobs" class="button button-secondary" type="button">
+              Atualizar
+            </button>
+          </div>
+          <div id="sse-state" class="connection-state" role="status" aria-live="polite">
+            Aguardando jobs ativos.
+          </div>
+          <div id="job-list" class="job-list" aria-busy="true"></div>
+        </section>
+
+        <section id="view-leitura" class="view" aria-labelledby="leitura-heading" hidden>
+          <div class="page-intro">
+            <div>
+              <h2 id="leitura-heading" class="sr-only">Leitura</h2>
+              <p id="reader-subtitle">Abra uma transcrição concluída pela biblioteca ou pela fila.</p>
+            </div>
+          </div>
+          <div id="reader-empty" class="empty-state data-panel">
+            <strong>Nenhuma transcrição selecionada</strong>
+            <p>Escolha “Ler” em uma gravação concluída.</p>
+            <a class="button button-secondary" href="#biblioteca" data-view-link="biblioteca">
+              Abrir biblioteca
+            </a>
+          </div>
+          <div id="reader-content" hidden>
+            <div class="reader-toolbar data-panel">
+              <div>
+                <strong id="reader-title">—</strong>
+                <span id="reader-metadata">—</span>
+              </div>
+              <div id="export-actions" class="export-actions" aria-label="Exportações"></div>
+            </div>
+            <video id="video-player" class="media-player video-player" controls preload="metadata" hidden>
+              Seu navegador não consegue reproduzir esta mídia.
+            </video>
+            <audio id="audio-player" class="media-player" controls preload="metadata" hidden>
+              Seu navegador não consegue reproduzir esta mídia.
+            </audio>
+            <div id="transcript-metrics" class="metrics-strip"></div>
+            <div class="reader-layout">
+              <section class="data-panel transcript-text" aria-labelledby="texto-integral-heading">
+                <h3 id="texto-integral-heading">Texto integral</h3>
+                <p id="transcript-full-text"></p>
+              </section>
+              <section class="data-panel segments-panel" aria-labelledby="segmentos-heading">
+                <div class="panel-title-row">
+                  <h3 id="segmentos-heading">Segmentos</h3>
+                  <span id="segment-count" class="count-badge">0</span>
+                </div>
+                <ol id="segment-list" class="segment-list"></ol>
+              </section>
+            </div>
+          </div>
+        </section>
+
+        <section id="view-modelos" class="view" aria-labelledby="modelos-heading" hidden>
+          <div class="page-intro">
+            <div>
+              <h2 id="modelos-heading" class="sr-only">Modelos</h2>
+              <p>Downloads são sempre iniciados explicitamente pela CLI.</p>
+            </div>
+          </div>
+          <div id="model-list" class="model-list" aria-busy="true"></div>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="transcription-dialog" aria-labelledby="transcription-dialog-title">
+      <form id="transcription-form" method="dialog">
+        <div class="dialog-heading">
+          <div>
+            <p class="eyebrow">Configuração</p>
+            <h2 id="transcription-dialog-title">Nova transcrição</h2>
+          </div>
+          <button class="icon-button" type="button" data-close-dialog="transcription-dialog"
+                  aria-label="Fechar">×</button>
+        </div>
+        <p id="transcription-recording-title" class="dialog-context"></p>
+        <input id="transcription-recording-id" type="hidden">
+        <div class="form-grid">
+          <div class="field">
+            <label for="transcription-model">Modelo</label>
+            <select id="transcription-model" required></select>
+          </div>
+          <div class="field">
+            <label for="transcription-language">Idioma</label>
+            <select id="transcription-language">
+              <option value="">Detectar automaticamente</option>
+              <option value="pt">Português</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="transcription-profile">Perfil</label>
+            <select id="transcription-profile">
+              <option value="auto">Automático</option>
+              <option value="cpu">CPU</option>
+              <option value="cuda">CUDA</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="transcription-beam">Beam size</label>
+            <input id="transcription-beam" type="number" min="1" max="100" value="5" required>
+          </div>
+        </div>
+        <div class="check-grid">
+          <label class="check-field">
+            <input id="transcription-vad" type="checkbox" checked>
+            <span><strong>Filtro VAD</strong><small>Ignora trechos sem fala.</small></span>
+          </label>
+          <label class="check-field">
+            <input id="transcription-timestamps" type="checkbox" checked>
+            <span><strong>Timestamps por palavra</strong><small>Permite navegação detalhada.</small></span>
+          </label>
+        </div>
+        <p id="transcription-model-warning" class="notice notice-warning" hidden></p>
+        <div class="dialog-actions">
+          <button class="button button-quiet" type="button"
+                  data-close-dialog="transcription-dialog">Cancelar</button>
+          <button id="review-transcription" class="button button-primary" type="submit">
+            Revisar e enfileirar
+          </button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="confirm-dialog" aria-labelledby="confirm-dialog-title">
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">Confirmação</p>
+          <h2 id="confirm-dialog-title">Enfileirar transcrição?</h2>
+        </div>
+      </div>
+      <dl id="transcription-summary" class="summary-list"></dl>
+      <p>O processamento será feito pelo worker local e continuará se esta página for fechada.</p>
+      <div class="dialog-actions">
+        <button id="cancel-enqueue" class="button button-quiet" type="button">Voltar</button>
+        <button id="confirm-enqueue" class="button button-primary" type="button">
+          Confirmar e enfileirar
+        </button>
+      </div>
+    </dialog>
+
+    <dialog id="delete-dialog" aria-labelledby="delete-dialog-title">
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">Excluir gravação</p>
+          <h2 id="delete-dialog-title">Confirmar exclusão</h2>
+        </div>
+      </div>
+      <p id="delete-message"></p>
+      <p class="destructive-note">A mídia, os jobs e as transcrições associados serão removidos.</p>
+      <div class="dialog-actions">
+        <button id="cancel-delete" class="button button-quiet" type="button">Cancelar</button>
+        <button id="confirm-delete" class="button button-danger" type="button">Excluir</button>
+      </div>
+    </dialog>
+
+    <div id="global-live" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+    <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+  </body>
+</html>

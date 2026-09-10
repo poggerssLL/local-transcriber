@@ -7,16 +7,17 @@
 
 O **Local Transcriber** é uma aplicação local para catalogar gravações, executar
 transcrição com Faster Whisper e exportar resultados estruturados sem depender de APIs
-de IA em nuvem. A versão atual é `0.5.1`, usa schema SQLite v4 e concluiu:
+de IA em nuvem. A versão atual é `0.6.0`, usa schema SQLite v4 e concluiu:
 
 1. fundação e persistência;
 2. biblioteca de mídia, pesquisa e exportadores;
 3. Faster Whisper, modelos explícitos e CLI;
 4. fila persistente e worker local;
-5. API FastAPI local e eventos SSE persistentes.
+5. API FastAPI local e eventos SSE persistentes;
+6. interface web local em HTML, CSS e JavaScript.
 
-A próxima etapa planejada é a interface web vanilla. Diarização, Ollama, microfone ao
-vivo e Home Assistant ainda não foram implementados.
+A próxima etapa planejada é a integração e validação real abrangente do MVP. Diarização,
+Ollama, microfone ao vivo e Home Assistant ainda não foram implementados.
 
 ## Estrutura do repositório
 
@@ -45,6 +46,12 @@ Local Transcriber/
 │   ├── transcription.py
 │   ├── queueing.py
 │   ├── api.py
+│   ├── web/
+│   │   ├── index.html
+│   │   ├── styles.css
+│   │   ├── api.js
+│   │   ├── dom.js
+│   │   └── app.js
 │   ├── cli.py
 │   └── __main__.py
 └── tests/
@@ -66,6 +73,7 @@ O pacote usa layout `src/`, Python 3.11 ou superior e um único entrypoint insta
 - `transcription.py`: abstrai o engine, resolve perfis e coordena a transcrição.
 - `queueing.py`: enfileira trabalhos e executa o worker local sequencial com leases.
 - `api.py`: define os contratos `/api`, segurança HTTP, streaming, SSE e lifespan.
+- `web/`: implementa a interface sem build, com assets locais e consumo seguro da API.
 - `cli.py`: expõe os serviços existentes sem duplicar regras de negócio.
 
 ## Configuração e RuntimePaths
@@ -310,11 +318,48 @@ corrida em que a transição poderia ocorrer entre a consulta e a leitura do job
 conexão nem transação aberta durante a espera. O stream termina após entregar o evento
 terminal, e a perda do cliente apenas encerra o produtor HTTP.
 
+## Interface web local
+
+A raiz `/` entrega `index.html`, e `/assets` serve CSS e módulos JavaScript empacotados
+com a distribuição Python. A interface e a API compartilham a mesma origem; não existe
+etapa obrigatória de build, runtime Node, CDN, telemetria ou chamada a serviço externo.
+As rotas `/api/docs` e `/redoc` permanecem ausentes, enquanto `/api/openapi.json` continua
+disponível como especificação local dos contratos.
+
+O shell usa HTML semântico com navegação compacta e vistas para painel, matérias,
+biblioteca, fila, leitura e modelos. O painel reúne saúde do serviço, estado real da thread
+do worker, perfil recomendado, disponibilidade do modelo e jobs recentes. Matérias podem
+ser criadas e usadas como filtro da biblioteca. Upload, pesquisa e exclusão usam os
+contratos existentes, sem aceitar caminhos do cliente.
+
+Antes de enfileirar, um diálogo reúne modelo, idioma, perfil, beam size, VAD e timestamps
+por palavra, exibe impedimentos e exige confirmação. A interface nunca inicia download de
+modelo; quando ele falta, mostra o comando explícito da CLI. Jobs são reconstruídos do
+SQLite após recarga, e cada job não terminal recebe um `EventSource`. O navegador preserva
+o último ID entregue na reconexão nativa, enquanto o backend garante replay persistente.
+Estados de desconexão e recuperação são anunciados sem cancelar o trabalho.
+
+A leitura usa o endpoint controlado de mídia, aceita seek por timestamps clicáveis e
+apresenta texto integral, idioma, métricas, segmentos e probabilidades somente quando
+existem. Exportações nos cinco formatos podem ser criadas e baixadas pelos IDs gerenciados.
+O suporte concreto de reprodução ainda depende dos codecs do navegador.
+
+Dados recebidos da API são inseridos com `textContent`, atributos controlados e criação
+explícita de elementos. A implementação não usa `innerHTML`, `outerHTML`,
+`insertAdjacentHTML`, `document.write` ou `eval`. O CSP permite somente recursos da mesma
+origem necessários a scripts, estilos, mídia e requisições e mantém objetos, frames e base
+externa bloqueados.
+
+Acessibilidade inclui landmarks, link para pular ao conteúdo, labels associados, foco
+visível, navegação por teclado, diálogos nativos, regiões `aria-live`, texto além da cor e
+redução de movimento. O layout foi validado em 1366×768 e em viewport estreita, sem
+overflow horizontal da página.
+
 ## Evidência de validação
 
 ### Automatizada e com doubles
 
-A suíte de 95 testes funciona sem GPU, modelo ou rede. Ela cobre configuração, domínio,
+A suíte de 101 testes funciona sem GPU, modelo ou rede. Ela cobre configuração, domínio,
 migrações v1–v4, mídia sintética, pesquisa, exportadores, perfis, ausência de download
 automático, backend injetado, consumo lazy, reivindicação concorrente, leases, recuperação,
 cancelamento, retry, progresso, publicação idempotente, falhas transacionais, recuperação
@@ -322,8 +367,15 @@ do heartbeat após erro SQLite transitório, perda definitiva de posse, bloqueio
 obsoleto, continuidade do loop, áudio longo simulado, comandos principais da CLI, contratos
 HTTP, upload, limites, Host/Origin, fila, SSE, replay, heartbeat, desconexão, Range,
 exportações, OpenAPI offline, ausência das rotas de documentação HTML, consultas
-incrementais limitadas, backlog em vários lotes e lifespan. Esses testes validam
-comportamento determinístico, não qualidade de inferência.
+incrementais limitadas, backlog em vários lotes, lifespan, shell e assets locais, HTML
+semântico, ausência de sinks inseguros, fluxo web de upload, pesquisa, fila, cancelamento,
+reprodução por Range, exportações e metadados de runtime. Esses testes validam comportamento
+determinístico, não qualidade de inferência.
+
+Uma inspeção real em navegador Chromium percorreu painel, biblioteca vazia e preenchida,
+modelo ausente, confirmação, falha, job em andamento, busca, leitura, exportação, tela
+estreita, foco por teclado e reconexão SSE. Foram usados apenas runtime e conteúdo
+sintéticos temporários; não houve download de modelo nem inferência sobre áudio pessoal.
 
 ### Execução real
 
@@ -361,7 +413,8 @@ horas confirma ausência de timeout artificial no domínio, não desempenho de c
   ainda pode apresentar erros;
 - qualquer adaptação contextual futura exige escopo próprio e avaliação com gabarito;
 - CUDA não foi validada ponta a ponta;
-- interface web ainda não existe;
+- reprodução no navegador depende dos codecs disponíveis;
+- a seleção atual da leitura não persiste após recarregar a página;
 - shutdown pode aguardar uma operação indivisível do engine;
 - SSE detecta eventos por consultas SQLite curtas e possui pequena latência de entrega;
 - diarização, Ollama, microfone ao vivo e Home Assistant permanecem fora do MVP.
@@ -372,4 +425,7 @@ Consulte [estado atual](PROJECT_STATE.md), [decisões](DECISIONS.md),
 [Etapa 3](PHASE_03_WHISPER_AND_CLI.md), [validação 3B](PHASE_03B_REAL_VALIDATION.md),
 [validação 3C](PHASE_03C_SECOND_REAL_VALIDATION.md) e
 [Etapa 4](PHASE_04_PERSISTENT_QUEUE.md) e
-[correção complementar 4B](PHASE_04B_LEASE_RELIABILITY.md).
+[correção complementar 4B](PHASE_04B_LEASE_RELIABILITY.md),
+[Etapa 5](PHASE_05_LOCAL_API_AND_SSE.md),
+[correção complementar 5B](PHASE_05B_OFFLINE_DOCS_AND_INCREMENTAL_SSE.md) e
+[Etapa 6](PHASE_06_WEB_INTERFACE.md).

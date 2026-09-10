@@ -3,9 +3,9 @@
 Aplicação local para catalogar gravações e executar transcrição com Faster Whisper.
 A versão atual inclui importação segura e inspeção de mídia, pesquisa SQLite FTS5,
 transcrição local síncrona, fila persistente com worker local, API FastAPI restrita ao
-localhost, eventos SSE e exportadores TXT, Markdown, SRT, WebVTT e JSON.
+localhost, interface web local, eventos SSE e exportadores TXT, Markdown, SRT, WebVTT e JSON.
 
-Versão atual: `0.5.1`, com schema SQLite v4.
+Versão atual: `0.6.0`, com schema SQLite v4.
 
 ## Requisitos e instalação
 
@@ -94,10 +94,11 @@ O comando abaixo inicia a API e o worker local sequencial:
 local-transcriber serve
 ```
 
-O endereço padrão é `http://127.0.0.1:8765`. A especificação OpenAPI JSON fica disponível
-localmente em `http://127.0.0.1:8765/api/openapi.json`. Não há Swagger UI, ReDoc nem
-visualizador HTML nesta versão: isso evita dependências de CDN e mantém a operação
-completamente offline. O comando recusa bind público e múltiplos workers. Também existe
+O endereço padrão é `http://127.0.0.1:8765`. A interface abre nesse endereço e a
+especificação OpenAPI JSON fica disponível localmente em
+`http://127.0.0.1:8765/api/openapi.json`. Não há Swagger UI, ReDoc nem visualizador HTML
+dos contratos: isso evita dependências de CDN e mantém a operação completamente offline.
+O comando recusa bind público e múltiplos workers. Também existe
 um lock por diretório de runtime para impedir dois consumidores da mesma fila SQLite.
 
 Principais contratos:
@@ -123,6 +124,29 @@ decodificação. A API nunca aceita um caminho de arquivo do cliente e não devo
 físicos. `Host` e `Origin` local são validados, não há CORS wildcard e erros internos não
 retornam stack trace. Toda transcrição criada pela API passa pela fila; desconectar o SSE
 não cancela o job.
+
+## Interface web
+
+Inicie o serviço e abra `http://127.0.0.1:8765` no navegador:
+
+```powershell
+local-transcriber serve
+```
+
+A interface funciona sem instalação de Node, etapa de build, CDN ou conexão com a
+internet. Ela permite:
+
+- consultar serviço, worker, perfil recomendado, modelo e jobs recentes;
+- criar matérias, importar e pesquisar gravações e filtrar a biblioteca;
+- revisar configurações e confirmar uma transcrição antes de enviá-la para a fila;
+- acompanhar fase, progresso e tempo por SSE, com recuperação após recarga e reconexão;
+- cancelar ou repetir jobs, reproduzir a mídia e navegar por segmentos temporais;
+- ler texto e métricas e baixar TXT, Markdown, SRT, WebVTT e JSON;
+- verificar modelos instalados e copiar a orientação explícita da CLI quando faltarem.
+
+Os dados da API são inseridos no DOM como texto, sem interpretação como HTML. O layout
+oferece navegação por teclado, foco visível, regiões de anúncio e adaptação para notebooks
+e telas menores. O download de modelos não é iniciado pela interface.
 
 Modelos ausentes são informados com a ação necessária. O download continua disponível
 somente pela CLI explícita:
@@ -169,3 +193,5 @@ em cargas longas, CUDA e a validação ampla permanecem pendentes para a Etapa 7
   streaming, eventos persistentes e lifecycle do worker.
 - [Correção 5B](docs/PHASE_05B_OFFLINE_DOCS_AND_INCREMENTAL_SSE.md): OpenAPI JSON offline
   e leitura incremental dos eventos SSE.
+- [Interface web](docs/PHASE_06_WEB_INTERFACE.md): aplicação vanilla, acessibilidade,
+  fluxos locais e validação visual da Etapa 6.

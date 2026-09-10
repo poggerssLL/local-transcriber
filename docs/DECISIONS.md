@@ -97,7 +97,8 @@ revertam escolhas anteriores sem compreender suas consequências.
 - Status: aceita
 - Decisão: implementar FastAPI e frontend vanilla somente nas fases previstas.
 - Motivo: manter a evolução por etapas definida no roadmap.
-- Consequências: a versão atual não oferece API, SSE nem interface web e não usa CDN.
+- Consequências: FastAPI e SSE entraram na Etapa 5, a interface vanilla entrou na Etapa 6
+  e nenhuma delas usa CDN.
 
 ## ADR-013 — Downloads explícitos
 
@@ -256,3 +257,28 @@ revertam escolhas anteriores sem compreender suas consequências.
 - Motivo: habilitar seek e downloads sem aceitar caminhos fornecidos pelo cliente.
 - Consequências: ranges inválidos recebem 416, respostas omitem caminhos físicos e arquivos
   ausentes são tratados como inconsistência do runtime.
+
+## ADR-029 — Interface vanilla empacotada com o servidor
+
+- Data: 2026-09-10
+- Status: aceita
+- Decisão: servir HTML semântico, CSS e módulos JavaScript diretamente pelo FastAPI, na
+  mesma origem da API, sem build obrigatório, framework de frontend ou CDN.
+- Motivo: manter a instalação local simples, offline e compatível com o contrato de
+  privacidade, sem introduzir um segundo runtime de produção.
+- Consequências: assets entram como dados do pacote Python; a raiz entrega a aplicação e
+  `/assets` serve somente arquivos controlados. Node pode ser usado para verificação de
+  sintaxe no desenvolvimento, mas não é requisito de instalação nem execução.
+
+## ADR-030 — DOM seguro, acessibilidade e fila recuperável no navegador
+
+- Data: 2026-09-10
+- Status: aceita
+- Decisão: renderizar dados variáveis com `textContent` e criação explícita de elementos,
+  usar controles HTML nativos e acompanhar jobs persistentes com `EventSource` após cada
+  carga da interface.
+- Motivo: impedir interpretação de dados do usuário como HTML, preservar navegação por
+  teclado e recuperar progresso sem duplicar estado da fila no frontend.
+- Consequências: não se usam sinks de HTML dinâmico; estados têm texto e regiões
+  `aria-live`; desconexões SSE são anunciadas e reconectadas pelo navegador, enquanto o
+  backend continua responsável por `Last-Event-ID` e replay dos eventos persistidos.

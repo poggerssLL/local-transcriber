@@ -124,14 +124,6 @@ só, uma tarefa autorizada; qualquer mudança continua dependente do escopo soli
 - Possível direção futura: executar cenários sanitizados de carga e interrupção reais.
 - Fase provável: Etapa 7, integração e validação real.
 
-## Frontend ausente
-
-- Descrição: a API HTTP e o SSE existem, mas ainda não há interface web.
-- Impacto: o uso atual ocorre por CLI, clientes HTTP ou especificação OpenAPI JSON local.
-- Situação atual: a API fornece os contratos necessários sem antecipar assets visuais.
-- Possível direção futura: frontend vanilla servido localmente e sem CDN.
-- Fase provável: Etapa 6.
-
 ## Visualizador OpenAPI offline ausente
 
 - Descrição: Swagger UI e ReDoc não são expostos; somente `/api/openapi.json` está
@@ -141,6 +133,29 @@ só, uma tarefa autorizada; qualquer mudança continua dependente do escopo soli
   operação offline coerentes.
 - Possível direção futura: incorporar um visualizador totalmente local apenas em etapa
   explicitamente autorizada, sem baixar assets durante a execução.
+- Fase provável: não definida no roadmap atual.
+
+## Reprodução depende dos codecs do navegador
+
+- Descrição: a biblioteca aceita os contêineres e codecs decodificáveis pelo PyAV, mas o
+  player HTML usa os codecs oferecidos pelo navegador instalado.
+- Impacto: uma gravação válida para transcrição pode não ser reproduzível diretamente no
+  navegador, embora continue disponível para processamento e exportação.
+- Situação atual: o endpoint de mídia suporta Range e o player apresenta erro legível sem
+  expor caminhos físicos; a aplicação não converte nem normaliza a mídia.
+- Possível direção futura: validar uma matriz sanitizada de codecs no ambiente-alvo e
+  avaliar conversão somente em escopo próprio.
+- Fase provável: Etapa 7, integração e validação real.
+
+## Seleção de leitura não persiste após recarga
+
+- Descrição: a gravação aberta na tela de leitura é um estado de navegação do navegador e
+  não é persistida no SQLite nem codificada na URL.
+- Impacto: após recarregar a página, é necessário abrir novamente a gravação pela
+  biblioteca; jobs e progresso continuam recuperados da fila persistente.
+- Situação atual: decisão conservadora da primeira interface, sem criar novo estado de
+  domínio ou alterar o schema v4.
+- Possível direção futura: avaliar URLs locais endereçáveis e restauração de navegação.
 - Fase provável: não definida no roadmap atual.
 
 ## Encerramento aguarda a operação corrente do engine
