@@ -7,7 +7,7 @@
 
 O **Local Transcriber** é uma aplicação local para catalogar gravações, executar
 transcrição com Faster Whisper e exportar resultados estruturados sem depender de APIs
-de IA em nuvem. A versão atual é `0.4.0`, usa schema SQLite v4 e concluiu:
+de IA em nuvem. A versão atual é `0.4.1`, usa schema SQLite v4 e concluiu:
 
 1. fundação e persistência;
 2. biblioteca de mídia, pesquisa e exportadores;
@@ -35,6 +35,7 @@ Local Transcriber/
 ├── src/local_transcriber/
 │   ├── config.py
 │   ├── database.py
+│   ├── exceptions.py
 │   ├── models.py
 │   ├── repository.py
 │   ├── media.py
@@ -55,6 +56,7 @@ O pacote usa layout `src/`, Python 3.11 ou superior e um único entrypoint insta
 - `config.py`: resolve configuração, diretórios de runtime e caminhos relativos seguros.
 - `models.py`: define modelos de domínio imutáveis e suas validações.
 - `database.py`: abre conexões SQLite e aplica migrações incrementais.
+- `exceptions.py`: define falhas de domínio compartilhadas, incluindo perda de lease.
 - `repository.py`: executa consultas parametrizadas e reconstrói o domínio.
 - `media.py`: importa, inspeciona, cataloga e exclui mídia gerenciada.
 - `exporters.py`: renderiza formatos determinísticos e registra artefatos.
@@ -201,14 +203,24 @@ pode exigir reconciliação futura.
 
 A reivindicação usa `BEGIN IMMEDIATE` e um `UPDATE` condicionado ao estado `pending`.
 Cada worker processa no máximo um job por vez; uma heartbeat renova a lease durante
-operações demoradas. Atualizações e publicação verificam a posse, impedindo um worker
-obsoleto de gravar depois que outro recuperou o job.
+operações demoradas. Falhas SQLite transitórias são repetidas de modo limitado enquanto
+há margem segura antes da expiração. A primeira falha permanece observável no estado da
+heartbeat; perda definitiva ou impossibilidade de renovar com segurança ativa um sinal
+compartilhado, consultado nos callbacks de progresso e nos pontos cooperativos.
+
+`LeaseOwnershipLost` separa perda de posse de falha do engine. Renovação, progresso,
+cancelamento pelo worker, falha e publicação exigem status `running`, o mesmo worker e
+lease ainda válida. Um worker obsoleto abandona a tentativa local sem alterar o job que
+outro worker recuperou, e o loop permanece apto a reivindicar trabalhos seguintes.
 
 Leases expiradas seguem política determinística: cancelamento pendente termina como
 `cancelled`; limite de tentativas atingido termina como `failed`; os demais jobs voltam a
 `pending` e podem reiniciar desde o começo. Como não existe retomada acústica, a execução
-é `at least once`, não “exactly once”. A restrição única de transcrição por job e a
-publicação transacional tornam o resultado final idempotente.
+é `at least once`, não “exactly once”. Somente um worker possui a lease válida e somente
+o proprietário atual pode persistir progresso ou publicar. Depois da expiração pode
+existir uma pequena sobreposição de computação até o worker obsoleto alcançar um ponto
+cooperativo; a restrição única por job e a publicação transacional impedem duas
+publicações finais.
 
 O cancelamento em execução é cooperativo e verificado durante o consumo lazy e antes da
 publicação. Ele pode aguardar carregamento do modelo ou outra operação indivisível.
@@ -237,12 +249,13 @@ A CLI compõe `MediaLibrary`, `Repository`, `ModelManager`, `TranscriptionServic
 
 ### Automatizada e com doubles
 
-A suíte de 63 testes funciona sem GPU, modelo ou rede. Ela cobre configuração, domínio,
+A suíte de 72 testes funciona sem GPU, modelo ou rede. Ela cobre configuração, domínio,
 migrações v1–v4, mídia sintética, pesquisa, exportadores, perfis, ausência de download
 automático, backend injetado, consumo lazy, reivindicação concorrente, leases, recuperação,
-cancelamento, retry, progresso, publicação idempotente, falhas transacionais, áudio longo
-simulado e comandos principais da CLI. Esses testes validam comportamento determinístico,
-não qualidade de inferência.
+cancelamento, retry, progresso, publicação idempotente, falhas transacionais, recuperação
+do heartbeat após erro SQLite transitório, perda definitiva de posse, bloqueio de worker
+obsoleto, continuidade do loop, áudio longo simulado e comandos principais da CLI. Esses
+testes validam comportamento determinístico, não qualidade de inferência.
 
 ### Execução real
 
@@ -288,4 +301,5 @@ Consulte [estado atual](PROJECT_STATE.md), [decisões](DECISIONS.md),
 [Etapa 1](PHASE_01_FOUNDATION.md), [Etapa 2](PHASE_02_MEDIA_LIBRARY.md),
 [Etapa 3](PHASE_03_WHISPER_AND_CLI.md), [validação 3B](PHASE_03B_REAL_VALIDATION.md),
 [validação 3C](PHASE_03C_SECOND_REAL_VALIDATION.md) e
-[Etapa 4](PHASE_04_PERSISTENT_QUEUE.md).
+[Etapa 4](PHASE_04_PERSISTENT_QUEUE.md) e
+[correção complementar 4B](PHASE_04B_LEASE_RELIABILITY.md).

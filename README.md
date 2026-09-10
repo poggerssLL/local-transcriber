@@ -5,6 +5,8 @@ A versão atual inclui importação segura e inspeção de mídia, pesquisa SQLi
 transcrição local síncrona, fila persistente com worker local e exportadores TXT,
 Markdown, SRT, WebVTT e JSON.
 
+Versão atual: `0.4.1`, com schema SQLite v4.
+
 ## Requisitos e instalação
 
 - Windows e Python 3.11 ou superior.
@@ -76,6 +78,13 @@ SQLite, aceitam cancelamento e retry e recuperam leases expiradas. A recuperaç�
 reiniciar a inferência desde o começo; a execução é `at least once`, enquanto a publicação
 final permanece idempotente e limitada a uma transcrição por job.
 
+O heartbeat distingue erros SQLite transitórios de perda de posse: tenta renovar de
+forma limitada enquanto existe margem segura e sinaliza o worker quando a lease não pode
+mais ser garantida. Somente o proprietário da lease válida pode persistir progresso ou
+publicar. Após uma expiração pode haver breve sobreposição de computação até o worker
+obsoleto alcançar um ponto cooperativo, mas a publicação transacional impede dois
+resultados finais para o mesmo job.
+
 Perfis de execução:
 
 - `cpu`: CPU com `int8`;
@@ -108,3 +117,5 @@ em cargas longas, CUDA e a validação ampla permanecem pendentes para a Etapa 7
 - [Validação real 3B](docs/PHASE_03B_REAL_VALIDATION.md): smoke test posterior da Etapa 3.
 - [Validação real 3C](docs/PHASE_03C_SECOND_REAL_VALIDATION.md): segunda execução real da Etapa 3.
 - [Fila persistente](docs/PHASE_04_PERSISTENT_QUEUE.md): relatório histórico da Etapa 4.
+- [Confiabilidade de lease 4B](docs/PHASE_04B_LEASE_RELIABILITY.md): correção
+  complementar do heartbeat e da perda de posse.

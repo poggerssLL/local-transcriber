@@ -14,6 +14,7 @@ from time import perf_counter
 from typing import Any, Protocol
 
 from .config import RuntimePaths
+from .exceptions import LeaseOwnershipLost
 from .models import (
     JobPhase,
     JobStatus,
@@ -142,6 +143,7 @@ class ProgressEvent:
 
 
 ProgressCallback = Callable[[ProgressEvent], None]
+LeaseGuard = Callable[[], None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -373,20 +375,22 @@ class TranscriptionService:
         *,
         lease_seconds: float = 60.0,
         progress: ProgressCallback | None = None,
+        lease_guard: LeaseGuard | None = None,
     ) -> Transcript | None:
         """Execute one claimed job; failures and cancellation are persisted."""
+        self._check_lease_guard(lease_guard)
         job = self.repository.get_job(job_id)
         if job is None:
             raise KeyError(f"job not found: {job_id}")
         if job.status is not JobStatus.RUNNING or job.worker_id != worker_id:
-            raise RuntimeError("job is not owned by this worker")
+            raise LeaseOwnershipLost("job is not owned by this worker")
         requested = job.settings or TranscriptionSettings(
             engine=job.engine, model_name=job.model_name
         )
         runtime_paths: list[Path] = []
         started = self.clock()
         try:
-            self._raise_if_cancelled(job_id, worker_id)
+            self._raise_if_cancelled(job_id, worker_id, lease_guard)
             recording = self.repository.get_recording(job.recording_id)
             if recording is None:
                 raise KeyError(f"recording not found: {job.recording_id}")
@@ -412,7 +416,7 @@ class TranscriptionService:
             )
 
             def persist_event(event: ProgressEvent) -> None:
-                self._raise_if_cancelled(job_id, worker_id)
+                self._raise_if_cancelled(job_id, worker_id, lease_guard)
                 event_total = event.total_seconds or total
                 event_percent = event.percent
                 if event_percent is None and event_total and event.processed_seconds:
@@ -436,14 +440,14 @@ class TranscriptionService:
                         lease_seconds=lease_seconds,
                     )
                 except RuntimeError:
-                    self._raise_if_cancelled(job_id, worker_id)
+                    self._raise_if_cancelled(job_id, worker_id, lease_guard)
                     raise
                 self._notify(progress, event)
 
             output = self.engine_factory(resolved).transcribe(
                 TranscriptionRequest(media_path, model_path, effective), persist_event
             )
-            self._raise_if_cancelled(job_id, worker_id)
+            self._raise_if_cancelled(job_id, worker_id, lease_guard)
             elapsed = max(0.0, self.clock() - started)
             duration = output.audio_duration_seconds or total or 0.0
             self.repository.update_claimed_job(
@@ -473,21 +477,32 @@ class TranscriptionService:
                     word_count=sum(len(segment.words) for segment in output.segments),
                 ),
             )
+            self._check_lease_guard(lease_guard)
             published = self.repository.complete_transcription(
                 job_id, transcript, worker_id=worker_id, now=self.now()
             )
+        except LeaseOwnershipLost:
+            return None
         except TranscriptionCancelled:
-            self.repository.finish_claimed_cancel(job_id, worker_id, now=self.now())
+            try:
+                self._check_lease_guard(lease_guard)
+                self.repository.finish_claimed_cancel(job_id, worker_id, now=self.now())
+            except LeaseOwnershipLost:
+                return None
             return None
         except Exception as error:
             try:
-                if self.repository.claimed_job_cancel_requested(job_id, worker_id):
+                self._check_lease_guard(lease_guard)
+                if self.repository.claimed_job_cancel_requested(job_id, worker_id, now=self.now()):
                     self.repository.finish_claimed_cancel(job_id, worker_id, now=self.now())
                     return None
-            except (KeyError, RuntimeError):
-                pass
+            except LeaseOwnershipLost:
+                return None
             message = self._sanitize_error(error, *runtime_paths)
-            self.repository.fail_claimed_job(job_id, worker_id, message, now=self.now())
+            try:
+                self.repository.fail_claimed_job(job_id, worker_id, message, now=self.now())
+            except LeaseOwnershipLost:
+                return None
             return None
         self._notify(
             progress,
@@ -502,9 +517,20 @@ class TranscriptionService:
         )
         return published
 
-    def _raise_if_cancelled(self, job_id: str, worker_id: str) -> None:
-        if self.repository.claimed_job_cancel_requested(job_id, worker_id):
+    def _raise_if_cancelled(
+        self,
+        job_id: str,
+        worker_id: str,
+        lease_guard: LeaseGuard | None = None,
+    ) -> None:
+        self._check_lease_guard(lease_guard)
+        if self.repository.claimed_job_cancel_requested(job_id, worker_id, now=self.now()):
             raise TranscriptionCancelled("transcription cancellation requested")
+
+    @staticmethod
+    def _check_lease_guard(lease_guard: LeaseGuard | None) -> None:
+        if lease_guard is not None:
+            lease_guard()
 
     @staticmethod
     def _notify(progress: ProgressCallback | None, event: ProgressEvent) -> None:

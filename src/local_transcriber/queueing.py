@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import Callable
-from datetime import datetime
-from threading import Event, Thread
+from datetime import datetime, timedelta
+from threading import Event, Lock, Thread
 from time import perf_counter, sleep
 from uuid import uuid4
 
 from .config import RuntimePaths
+from .exceptions import LeaseOwnershipLost
 from .models import TranscriptionJob, TranscriptionSettings, utc_now
 from .models_manager import ModelManager
 from .repository import Repository
@@ -75,13 +77,27 @@ class _LeaseHeartbeat:
         worker_id: str,
         lease_seconds: float,
         now: Callable[[], datetime],
+        lease_expires_at: datetime,
+        *,
+        max_transient_retries: int = 3,
+        retry_interval: float | None = None,
+        safety_margin: float | None = None,
     ) -> None:
         self.repository = repository
         self.job_id = job_id
         self.worker_id = worker_id
         self.lease_seconds = lease_seconds
         self.now = now
+        self.max_transient_retries = max_transient_retries
+        self.retry_interval = retry_interval or max(0.01, min(0.25, lease_seconds / 12))
+        self.safety_margin = safety_margin or max(0.01, min(1.0, lease_seconds / 6))
+        self._confirmed_expiry = lease_expires_at
         self._stop = Event()
+        self._lost = Event()
+        self._finished = Event()
+        self._state_lock = Lock()
+        self._first_error: Exception | None = None
+        self._loss: LeaseOwnershipLost | None = None
         self._thread = Thread(target=self._run, name="transcription-lease", daemon=True)
 
     def __enter__(self) -> _LeaseHeartbeat:
@@ -92,18 +108,85 @@ class _LeaseHeartbeat:
         self._stop.set()
         self._thread.join(timeout=max(1.0, self.lease_seconds))
 
-    def _run(self) -> None:
-        interval = max(0.1, self.lease_seconds / 3)
-        while not self._stop.wait(interval):
+    @property
+    def first_error(self) -> Exception | None:
+        with self._state_lock:
+            return self._first_error
+
+    @property
+    def lost(self) -> bool:
+        return self._lost.is_set()
+
+    @property
+    def stopped(self) -> bool:
+        return self._finished.is_set() and not self._thread.is_alive()
+
+    def raise_if_lost(self) -> None:
+        if not self._lost.is_set():
+            return
+        with self._state_lock:
+            loss = self._loss
+        assert loss is not None
+        raise LeaseOwnershipLost(str(loss)) from loss
+
+    def _record_error(self, error: Exception) -> None:
+        with self._state_lock:
+            if self._first_error is None:
+                self._first_error = error
+
+    def _mark_lost(self, error: Exception) -> None:
+        self._record_error(error)
+        loss = (
+            error
+            if isinstance(error, LeaseOwnershipLost)
+            else LeaseOwnershipLost("lease could not be renewed safely")
+        )
+        with self._state_lock:
+            self._loss = loss
+        self._lost.set()
+
+    def _can_retry_safely(self) -> bool:
+        safe_until = self._confirmed_expiry - timedelta(seconds=self.safety_margin)
+        return self.now() < safe_until
+
+    def _renew(self) -> bool:
+        transient_failures = 0
+        while not self._stop.is_set():
+            renewed_at = self.now()
             try:
                 self.repository.renew_lease(
                     self.job_id,
                     self.worker_id,
-                    now=self.now(),
+                    now=renewed_at,
                     lease_seconds=self.lease_seconds,
                 )
-            except Exception:
-                return
+            except LeaseOwnershipLost as error:
+                self._mark_lost(error)
+                return False
+            except sqlite3.OperationalError as error:
+                self._record_error(error)
+                transient_failures += 1
+                if transient_failures > self.max_transient_retries or not self._can_retry_safely():
+                    self._mark_lost(error)
+                    return False
+                if self._stop.wait(self.retry_interval):
+                    return False
+            except Exception as error:
+                self._mark_lost(error)
+                return False
+            else:
+                self._confirmed_expiry = renewed_at + timedelta(seconds=self.lease_seconds)
+                return True
+        return False
+
+    def _run(self) -> None:
+        interval = max(0.05, self.lease_seconds / 3)
+        try:
+            while not self._stop.wait(interval):
+                if not self._renew():
+                    return
+        finally:
+            self._finished.set()
 
 
 class TranscriptionWorker:
@@ -137,6 +220,7 @@ class TranscriptionWorker:
         self.now = now
         self.sleeper = sleeper
         self.progress = progress
+        self._last_heartbeat: _LeaseHeartbeat | None = None
         self.service = TranscriptionService(
             repository,
             paths,
@@ -155,19 +239,27 @@ class TranscriptionWorker:
         )
         if job is None:
             return None
-        with _LeaseHeartbeat(
+        assert job.lease_expires_at is not None
+        heartbeat = _LeaseHeartbeat(
             self.repository,
             job.id,
             self.worker_id,
             self.lease_seconds,
             self.now,
-        ):
-            self.service.process_claimed_job(
-                job.id,
-                self.worker_id,
-                lease_seconds=self.lease_seconds,
-                progress=self.progress,
-            )
+            job.lease_expires_at,
+        )
+        self._last_heartbeat = heartbeat
+        try:
+            with heartbeat:
+                self.service.process_claimed_job(
+                    job.id,
+                    self.worker_id,
+                    lease_seconds=self.lease_seconds,
+                    progress=self.progress,
+                    lease_guard=heartbeat.raise_if_lost,
+                )
+        except LeaseOwnershipLost:
+            pass
         result = self.repository.get_job(job.id)
         assert result is not None
         return result

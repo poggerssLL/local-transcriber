@@ -94,6 +94,18 @@ só, uma tarefa autorizada; qualquer mudança continua dependente do escopo soli
 - Possível direção futura: avaliar checkpoints apenas se o engine oferecer suporte seguro.
 - Fase provável: não definida no roadmap atual.
 
+## Breve sobreposição de computação após expiração
+
+- Descrição: a perda ou expiração da lease é percebida em pontos cooperativos; uma
+  operação indivisível do engine pode continuar por um curto intervalo até o próximo.
+- Impacto: depois que outro worker recupera o job, as duas inferências podem se sobrepor
+  temporariamente em computação, embora somente uma lease seja válida.
+- Situação atual: somente o proprietário atual pode persistir progresso, cancelar, marcar
+  falha ou publicar. O worker obsoleto abandona a tentativa ao observar o sinal ou a
+  validação transacional; nunca há duas publicações finais para o mesmo job.
+- Possível direção futura: medir a latência até os pontos cooperativos com inferência real.
+- Fase provável: Etapa 7, integração e validação real.
+
 ## Cancelamento não instantâneo
 
 - Descrição: o cancelamento é verificado cooperativamente durante o consumo de segmentos.

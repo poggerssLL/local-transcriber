@@ -9,6 +9,7 @@ from datetime import date, datetime, timedelta
 from re import findall
 
 from .database import Database
+from .exceptions import LeaseOwnershipLost
 from .models import (
     ExportedArtifact,
     JobEvent,
@@ -391,11 +392,18 @@ class Repository:
         with self.database.transaction(immediate=True) as connection:
             cursor = connection.execute(
                 """UPDATE transcription_jobs SET lease_expires_at = ?, updated_at = ?
-                   WHERE id = ? AND status = 'running' AND worker_id = ?""",
-                (expires.isoformat(), renewed_at.isoformat(), job_id, worker_id),
+                   WHERE id = ? AND status = 'running' AND worker_id = ?
+                     AND lease_expires_at > ?""",
+                (
+                    expires.isoformat(),
+                    renewed_at.isoformat(),
+                    job_id,
+                    worker_id,
+                    renewed_at.isoformat(),
+                ),
             )
             if cursor.rowcount != 1:
-                raise RuntimeError("job lease ownership was lost")
+                raise LeaseOwnershipLost("job lease ownership was lost")
 
     def update_claimed_job(
         self,
@@ -421,8 +429,7 @@ class Repository:
             ).fetchone()
             if row is None:
                 raise KeyError(f"job not found: {job_id}")
-            if row["status"] != JobStatus.RUNNING.value or row["worker_id"] != worker_id:
-                raise RuntimeError("job lease ownership was lost")
+            self._require_valid_lease(row, worker_id, changed_at)
             if row["cancel_requested_at"] is not None:
                 raise RuntimeError("job cancellation was requested")
             next_processed = max(float(row["processed_seconds"]), processed_seconds)
@@ -437,7 +444,8 @@ class Repository:
                 """UPDATE transcription_jobs
                    SET phase = ?, progress_percent = ?, processed_seconds = ?,
                        total_seconds = ?, lease_expires_at = ?, updated_at = ?
-                   WHERE id = ? AND status = 'running' AND worker_id = ?""",
+                   WHERE id = ? AND status = 'running' AND worker_id = ?
+                     AND lease_expires_at > ?""",
                 (
                     JobPhase(phase).value,
                     next_percent,
@@ -447,6 +455,7 @@ class Repository:
                     changed_at.isoformat(),
                     job_id,
                     worker_id,
+                    changed_at.isoformat(),
                 ),
             )
             self._append_event(
@@ -599,17 +608,23 @@ class Repository:
             for row in rows
         ]
 
-    def claimed_job_cancel_requested(self, job_id: str, worker_id: str) -> bool:
+    def claimed_job_cancel_requested(
+        self,
+        job_id: str,
+        worker_id: str,
+        *,
+        now: datetime | None = None,
+    ) -> bool:
+        checked_at = now or utc_now()
         with self.database.connect() as connection:
             row = connection.execute(
-                """SELECT status, worker_id, cancel_requested_at
+                """SELECT status, worker_id, lease_expires_at, cancel_requested_at
                    FROM transcription_jobs WHERE id = ?""",
                 (job_id,),
             ).fetchone()
         if row is None:
             raise KeyError(f"job not found: {job_id}")
-        if row["status"] != JobStatus.RUNNING.value or row["worker_id"] != worker_id:
-            raise RuntimeError("job lease ownership was lost")
+        self._require_valid_lease(row, worker_id, checked_at)
         return row["cancel_requested_at"] is not None
 
     def _finish_claimed(
@@ -631,13 +646,13 @@ class Repository:
             ).fetchone()
             if row is None:
                 raise KeyError(f"job not found: {job_id}")
-            if row["status"] != JobStatus.RUNNING.value or row["worker_id"] != worker_id:
-                raise RuntimeError("job lease ownership was lost")
+            self._require_valid_lease(row, worker_id, finished_at)
             connection.execute(
                 """UPDATE transcription_jobs
                    SET status = ?, phase = 'completed', error_message = ?, finished_at = ?,
                        lease_expires_at = NULL, updated_at = ?
-                   WHERE id = ? AND status = 'running' AND worker_id = ?""",
+                   WHERE id = ? AND status = 'running' AND worker_id = ?
+                     AND lease_expires_at > ?""",
                 (
                     status.value,
                     error_message,
@@ -645,6 +660,7 @@ class Repository:
                     finished_at.isoformat(),
                     job_id,
                     worker_id,
+                    finished_at.isoformat(),
                 ),
             )
             self._append_event(
@@ -660,6 +676,17 @@ class Repository:
         result = self.get_job(job_id)
         assert result is not None
         return result
+
+    @staticmethod
+    def _require_valid_lease(row: sqlite3.Row, worker_id: str, checked_at: datetime) -> None:
+        lease_expires_at = _optional_dt(row["lease_expires_at"])
+        if (
+            row["status"] != JobStatus.RUNNING.value
+            or row["worker_id"] != worker_id
+            or lease_expires_at is None
+            or lease_expires_at <= checked_at
+        ):
+            raise LeaseOwnershipLost("job lease ownership was lost")
 
     def _recover_expired_jobs(self, connection: sqlite3.Connection, recovered_at: datetime) -> int:
         rows = connection.execute(
@@ -884,8 +911,8 @@ class Repository:
                 if existing_id is None:
                     raise ValueError("only a running job can publish a transcript")
             elif existing_id is None:
-                if worker_id is not None and row["worker_id"] != worker_id:
-                    raise RuntimeError("job lease ownership was lost")
+                if worker_id is not None:
+                    self._require_valid_lease(row, worker_id, updated_at)
                 if row["cancel_requested_at"] is not None:
                     raise RuntimeError("job cancellation was requested")
                 if row["recording_id"] != transcript.recording_id:

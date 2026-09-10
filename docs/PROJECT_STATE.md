@@ -1,6 +1,6 @@
 # Estado atual do projeto
 
-> Fotografia verificada em 2026-09-10 após a conclusão da Etapa 4. Atualize este documento ao fim de cada fase;
+> Fotografia verificada em 2026-09-10 após a correção complementar 4B. Atualize este documento ao fim de cada fase;
 > não reescreva os relatórios históricos de fases concluídas.
 
 O **Local Transcriber** é uma aplicação local para catalogar gravações e persistir o
@@ -9,7 +9,7 @@ domínio, biblioteca de mídia, engine desacoplado, fila persistente, worker loc
 exportadores determinísticos e persistência de metadados em SQLite; mídias, modelos e
 demais dados de runtime ficam fora do repositório.
 
-- Versão do pacote: `0.4.0`.
+- Versão do pacote: `0.4.1`.
 - Schema SQLite: v4.
 - Etapas concluídas: 1, fundação e persistência; 2, biblioteca de mídia e exportadores;
   3, Faster Whisper, gerenciamento explícito de modelos e CLI; 4, fila persistente.
@@ -19,13 +19,18 @@ demais dados de runtime ficam fora do repositório.
   progresso e eventos persistentes, cancelamento, retry, recuperação por lease e exportação
   TXT, Markdown, SRT, WebVTT e JSON; um único entrypoint expõe esses serviços.
 - Dependências de runtime validadas: PyAV 16.1.0, Faster Whisper 1.2.1 e CTranslate2 4.8.2.
-- Última validação registrada nesta fotografia: 63 testes aprovados.
+- Última validação registrada nesta fotografia: 72 testes aprovados.
 - Commit funcional verificado da Etapa 3: `b28da0480bee08f533a338001284b36e2a6565bc`.
 - Próxima etapa: Etapa 5, API FastAPI e SSE.
 - A fila usa estados públicos preservados e fases operacionais separadas. A reivindicação
   é transacional e condicionada ao estado; a posse usa worker e lease renovável.
+- Falhas SQLite transitórias do heartbeat têm retry limitado enquanto há margem segura.
+  Perda definitiva ativa um sinal cooperativo e usa `LeaseOwnershipLost`, sem classificar
+  a tentativa obsoleta como falha do engine nem alterar o job recuperado por outro worker.
 - Execução após crash é `at least once`: jobs recuperados podem reiniciar a inferência.
-  A publicação final é idempotente e limitada a uma transcrição por job.
+  Somente a lease válida permite persistir progresso ou publicar. Pode haver breve
+  sobreposição de computação até o worker obsoleto atingir um ponto cooperativo, mas a
+  publicação final é transacional e limitada a uma transcrição por job.
 - O cancelamento é cooperativo, o worker padrão processa um job por vez e não há timeout
   total artificial para gravações longas.
 - Duas validações reais posteriores à Etapa 3 confirmaram o modelo `small` multilíngue,
@@ -48,4 +53,5 @@ Referências: [contrato](PROJECT_CONTRACT.md), [arquitetura viva](FOUNDATION.md)
 [Etapa 2](PHASE_02_MEDIA_LIBRARY.md), [Etapa 3](PHASE_03_WHISPER_AND_CLI.md),
 [validação real 3B](PHASE_03B_REAL_VALIDATION.md),
 [segunda validação real 3C](PHASE_03C_SECOND_REAL_VALIDATION.md) e
-[Etapa 4](PHASE_04_PERSISTENT_QUEUE.md).
+[Etapa 4](PHASE_04_PERSISTENT_QUEUE.md) e
+[correção complementar 4B](PHASE_04B_LEASE_RELIABILITY.md).

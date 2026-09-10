@@ -2,6 +2,7 @@
 
 from .config import AppConfig, RuntimePaths
 from .database import SCHEMA_VERSION, Database
+from .exceptions import LeaseOwnershipLost
 from .exporters import ExportFormat, TranscriptExporter, render_transcript
 from .media import (
     ALLOWED_EXTENSIONS,
@@ -67,6 +68,7 @@ __all__ = [
     "JobEvent",
     "JobPhase",
     "JobStatus",
+    "LeaseOwnershipLost",
     "MediaImportError",
     "MediaImportSettings",
     "MediaInfo",

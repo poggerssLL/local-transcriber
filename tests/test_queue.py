@@ -15,6 +15,7 @@ from local_transcriber import (
     EngineOutput,
     JobPhase,
     JobStatus,
+    LeaseOwnershipLost,
     ProfileResolver,
     ProgressEvent,
     Recording,
@@ -23,8 +24,11 @@ from local_transcriber import (
     RuntimePaths,
     Segment,
     Subject,
+    Transcript,
+    TranscriptionMetrics,
     TranscriptionQueue,
     TranscriptionService,
+    TranscriptionSettings,
     TranscriptionWorker,
     Word,
 )
@@ -125,6 +129,14 @@ def _queue(tmp_path: Path, *, duration: float = 120.0, max_attempts: int = 3):
     queue = TranscriptionQueue(repository, paths, now=lambda: clock.now)
     job = queue.enqueue(recording.id, max_attempts=max_attempts)
     return paths, database, repository, recording, clock, queue, job
+
+
+def _wait_for_heartbeat_loss(worker: TranscriptionWorker) -> None:
+    for _attempt in range(200):
+        if worker._last_heartbeat is not None and worker._last_heartbeat.lost:
+            return
+        sleep(0.01)
+    pytest.fail("heartbeat did not report lease loss")
 
 
 def test_enqueue_does_not_create_engine_or_run_inference(tmp_path: Path) -> None:
@@ -389,14 +401,17 @@ def test_synchronous_callback_after_success_cannot_report_failure(tmp_path: Path
     assert repository.get_job(transcript.job_id).status is JobStatus.SUCCEEDED
 
 
-def test_keyboard_interrupt_stops_worker_without_classifying_domain_failure(tmp_path: Path) -> None:
+@pytest.mark.parametrize("operational_exit", [KeyboardInterrupt, SystemExit])
+def test_operational_exit_stops_worker_without_classifying_domain_failure(
+    tmp_path: Path, operational_exit: type[BaseException]
+) -> None:
     paths, _database, repository, _recording, clock, _queue_service, job = _queue(tmp_path)
 
     class InterruptedEngine:
         name = "interrupted"
 
         def transcribe(self, request, progress=None):
-            raise KeyboardInterrupt
+            raise operational_exit
 
     worker = TranscriptionWorker(
         repository,
@@ -410,3 +425,315 @@ def test_keyboard_interrupt_stops_worker_without_classifying_domain_failure(tmp_
     interrupted = repository.get_job(job.id)
     assert interrupted.status is JobStatus.RUNNING
     assert interrupted.error_message is None
+
+
+def test_heartbeat_retries_transient_sqlite_error_and_recovers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    paths, _database, repository, _recording = _context(tmp_path)
+    TranscriptionQueue(repository, paths).enqueue(repository.list_recordings()[0].id)
+    started = Event()
+    release = Event()
+    renewed = Event()
+    original_renew = repository.renew_lease
+    attempts = 0
+
+    def flaky_renew(*args, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise sqlite3.OperationalError("database is temporarily locked")
+        original_renew(*args, **kwargs)
+        renewed.set()
+
+    class BlockingEngine:
+        name = "blocking"
+
+        def transcribe(self, request, progress=None):
+            started.set()
+            assert release.wait(timeout=3)
+            return EngineOutput("", (), "pt", 0.9, 120)
+
+    monkeypatch.setattr(repository, "renew_lease", flaky_renew)
+    worker = TranscriptionWorker(
+        repository,
+        paths,
+        worker_id="worker-a",
+        lease_seconds=0.3,
+        profiles=ProfileResolver(FixedProbe()),
+        engine_factory=lambda _profile: BlockingEngine(),
+    )
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(worker.run_once)
+        assert started.wait(timeout=2)
+        assert renewed.wait(timeout=2)
+        release.set()
+        assert future.result(timeout=3).status is JobStatus.SUCCEEDED
+
+    heartbeat = worker._last_heartbeat
+    assert heartbeat is not None
+    assert isinstance(heartbeat.first_error, sqlite3.OperationalError)
+    assert attempts >= 2
+    assert not heartbeat.lost
+    assert heartbeat.stopped
+
+
+def test_heartbeat_bounds_retries_when_sqlite_does_not_recover(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    paths, _database, repository, recording = _context(tmp_path)
+    TranscriptionQueue(repository, paths).enqueue(recording.id)
+    started = Event()
+    release = Event()
+    attempts = 0
+
+    def unavailable_database(*args, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        raise sqlite3.OperationalError("database remains locked")
+
+    class CallbackAfterRetryLimit:
+        name = "callback-after-retry-limit"
+
+        def transcribe(self, request, progress=None):
+            started.set()
+            assert release.wait(timeout=3)
+            assert progress is not None
+            progress(ProgressEvent("transcribing", "must not persist", 1, 10, 120, 8.0))
+            return EngineOutput("stale", (), "pt", 0.9, 120)
+
+    monkeypatch.setattr(repository, "renew_lease", unavailable_database)
+    worker = TranscriptionWorker(
+        repository,
+        paths,
+        worker_id="worker-a",
+        lease_seconds=0.15,
+        profiles=ProfileResolver(FixedProbe()),
+        engine_factory=lambda _profile: CallbackAfterRetryLimit(),
+    )
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(worker.run_once)
+        assert started.wait(timeout=2)
+        _wait_for_heartbeat_loss(worker)
+        release.set()
+        result = future.result(timeout=3)
+
+    heartbeat = worker._last_heartbeat
+    assert heartbeat is not None
+    assert isinstance(heartbeat.first_error, sqlite3.OperationalError)
+    assert heartbeat.lost
+    assert heartbeat.stopped
+    assert attempts == heartbeat.max_transient_retries + 1
+    assert result.status is JobStatus.RUNNING
+    assert result.error_message is None
+    assert repository.list_transcripts(recording.id) == []
+
+
+def test_heartbeat_signals_definitive_loss_to_progress_callback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    paths, _database, repository, recording = _context(tmp_path)
+    job = TranscriptionQueue(repository, paths).enqueue(recording.id)
+    started = Event()
+    release = Event()
+
+    def reject_renewal(*args, **kwargs):
+        raise LeaseOwnershipLost("simulated ownership change")
+
+    class CallbackAfterHeartbeatLoss:
+        name = "callback-after-loss"
+
+        def transcribe(self, request, progress=None):
+            started.set()
+            assert release.wait(timeout=3)
+            assert progress is not None
+            progress(ProgressEvent("transcribing", "stale progress", 1, 10, 120, 8.0))
+            return EngineOutput("stale", (), "pt", 0.9, 120)
+
+    monkeypatch.setattr(repository, "renew_lease", reject_renewal)
+    worker = TranscriptionWorker(
+        repository,
+        paths,
+        worker_id="worker-a",
+        lease_seconds=0.15,
+        profiles=ProfileResolver(FixedProbe()),
+        engine_factory=lambda _profile: CallbackAfterHeartbeatLoss(),
+    )
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(worker.run_once)
+        assert started.wait(timeout=2)
+        _wait_for_heartbeat_loss(worker)
+        release.set()
+        result = future.result(timeout=3)
+
+    assert result.status is JobStatus.RUNNING
+    assert result.worker_id == "worker-a"
+    assert result.error_message is None
+    assert repository.list_transcripts(recording.id) == []
+    assert all(event.message != "stale progress" for event in repository.list_job_events(job.id))
+    assert worker._last_heartbeat is not None
+    assert worker._last_heartbeat.stopped
+
+
+def test_stale_progress_abandons_job_without_failing_new_owner(tmp_path: Path) -> None:
+    paths, _database, repository, recording, clock, _queue_service, job = _queue(tmp_path)
+
+    class ReclaimedBeforeProgress:
+        name = "reclaimed-before-progress"
+
+        def transcribe(self, request, progress=None):
+            clock.advance(11)
+            claimed = repository.claim_next_job("worker-b", now=clock.now, lease_seconds=10)
+            assert claimed is not None
+            assert progress is not None
+            progress(ProgressEvent("transcribing", "stale progress", 1, 10, 120, 8.0))
+            return EngineOutput("stale", (), "pt", 0.9, 120)
+
+    result = TranscriptionWorker(
+        repository,
+        paths,
+        worker_id="worker-a",
+        lease_seconds=10,
+        profiles=ProfileResolver(FixedProbe()),
+        engine_factory=lambda _profile: ReclaimedBeforeProgress(),
+        now=lambda: clock.now,
+    ).run_once()
+
+    assert result.status is JobStatus.RUNNING
+    assert result.worker_id == "worker-b"
+    assert result.error_message is None
+    assert repository.list_transcripts(recording.id) == []
+    assert all(event.message != "stale progress" for event in repository.list_job_events(job.id))
+
+
+def test_stale_worker_cannot_publish_or_create_duplicate_transcription(tmp_path: Path) -> None:
+    _paths, _database, repository, recording, clock, _queue_service, job = _queue(tmp_path)
+    assert repository.claim_next_job("worker-a", now=clock.now, lease_seconds=10) is not None
+    clock.advance(11)
+    assert repository.claim_next_job("worker-b", now=clock.now, lease_seconds=10) is not None
+    output = ProgressEngine().transcribe(None)
+    metrics = TranscriptionMetrics(
+        audio_duration_seconds=120,
+        processing_duration_seconds=1,
+        segment_count=2,
+        word_count=2,
+    )
+    stale = Transcript(
+        recording_id=recording.id,
+        job_id=job.id,
+        language="pt",
+        text="stale",
+        segments=output.segments,
+        settings=TranscriptionSettings(),
+        metrics=metrics,
+    )
+    current = Transcript(
+        recording_id=recording.id,
+        job_id=job.id,
+        language="pt",
+        text="current",
+        segments=output.segments,
+        settings=TranscriptionSettings(),
+        metrics=metrics,
+    )
+
+    with pytest.raises(LeaseOwnershipLost):
+        repository.complete_transcription(job.id, stale, worker_id="worker-a", now=clock.now)
+    assert repository.list_transcripts(recording.id) == []
+
+    published = repository.complete_transcription(
+        job.id, current, worker_id="worker-b", now=clock.now
+    )
+    assert published.text == "current"
+    assert (
+        repository.complete_transcription(job.id, stale, worker_id="worker-a", now=clock.now).text
+        == "current"
+    )
+    assert len(repository.list_transcripts(recording.id)) == 1
+
+
+def test_engine_failure_after_ownership_loss_does_not_fail_new_owner(tmp_path: Path) -> None:
+    paths, _database, repository, _recording, clock, _queue_service, job = _queue(tmp_path)
+
+    class FailsAfterReclaim:
+        name = "fails-after-reclaim"
+
+        def transcribe(self, request, progress=None):
+            clock.advance(11)
+            assert (
+                repository.claim_next_job("worker-b", now=clock.now, lease_seconds=10) is not None
+            )
+            raise RuntimeError("old engine failed after losing ownership")
+
+    result = TranscriptionWorker(
+        repository,
+        paths,
+        worker_id="worker-a",
+        lease_seconds=10,
+        profiles=ProfileResolver(FixedProbe()),
+        engine_factory=lambda _profile: FailsAfterReclaim(),
+        now=lambda: clock.now,
+    ).run_once()
+
+    assert result.id == job.id
+    assert result.status is JobStatus.RUNNING
+    assert result.worker_id == "worker-b"
+    assert result.error_message is None
+
+
+def test_worker_loop_continues_after_losing_one_job(tmp_path: Path) -> None:
+    paths, _database, repository, recording, clock, queue, first = _queue(tmp_path)
+    clock.advance(1)
+    second = queue.enqueue(recording.id)
+    created_engines = 0
+
+    class LoseFirstJob:
+        name = "lose-first-job"
+
+        def transcribe(self, request, progress=None):
+            clock.advance(11)
+            assert (
+                repository.claim_next_job("worker-b", now=clock.now, lease_seconds=10) is not None
+            )
+            raise RuntimeError("stale attempt stopped")
+
+    def engine_factory(_profile):
+        nonlocal created_engines
+        created_engines += 1
+        return LoseFirstJob() if created_engines == 1 else ProgressEngine()
+
+    def stop_when_idle(_seconds: float) -> None:
+        raise KeyboardInterrupt
+
+    worker = TranscriptionWorker(
+        repository,
+        paths,
+        worker_id="worker-a",
+        lease_seconds=10,
+        poll_interval=0,
+        profiles=ProfileResolver(FixedProbe()),
+        engine_factory=engine_factory,
+        now=lambda: clock.now,
+        sleeper=stop_when_idle,
+    )
+    assert worker.run() == 130
+    assert repository.get_job(first.id).worker_id == "worker-b"
+    assert repository.get_job(first.id).status is JobStatus.RUNNING
+    assert repository.get_job(second.id).status is JobStatus.SUCCEEDED
+    assert created_engines == 2
+
+
+def test_heartbeat_is_stopped_when_job_finishes(tmp_path: Path) -> None:
+    paths, _database, repository, _recording, clock, _queue_service, _job = _queue(tmp_path)
+    worker = TranscriptionWorker(
+        repository,
+        paths,
+        worker_id="worker-a",
+        profiles=ProfileResolver(FixedProbe()),
+        engine_factory=lambda _profile: ProgressEngine(),
+        clock=clock.monotonic,
+        now=lambda: clock.now,
+    )
+    assert worker.run_once().status is JobStatus.SUCCEEDED
+    assert worker._last_heartbeat is not None
+    assert worker._last_heartbeat.stopped
