@@ -127,10 +127,21 @@ só, uma tarefa autorizada; qualquer mudança continua dependente do escopo soli
 ## Frontend ausente
 
 - Descrição: a API HTTP e o SSE existem, mas ainda não há interface web.
-- Impacto: o uso atual ocorre por CLI, clientes HTTP ou documentação OpenAPI local.
+- Impacto: o uso atual ocorre por CLI, clientes HTTP ou especificação OpenAPI JSON local.
 - Situação atual: a API fornece os contratos necessários sem antecipar assets visuais.
 - Possível direção futura: frontend vanilla servido localmente e sem CDN.
 - Fase provável: Etapa 6.
+
+## Visualizador OpenAPI offline ausente
+
+- Descrição: Swagger UI e ReDoc não são expostos; somente `/api/openapi.json` está
+  disponível.
+- Impacto: não há navegação visual dos contratos no navegador nesta versão.
+- Situação atual: remover o Swagger padrão elimina referências a CDN e mantém o CSP e a
+  operação offline coerentes.
+- Possível direção futura: incorporar um visualizador totalmente local apenas em etapa
+  explicitamente autorizada, sem baixar assets durante a execução.
+- Fase provável: não definida no roadmap atual.
 
 ## Encerramento aguarda a operação corrente do engine
 
@@ -145,10 +156,12 @@ só, uma tarefa autorizada; qualquer mudança continua dependente do escopo soli
 
 ## SSE usa consulta periódica conservadora
 
-- Descrição: novos eventos são detectados por consultas SQLite curtas em intervalo fixo;
-  não há notificação cross-thread nativa no SQLite.
+- Descrição: depois de drenar incrementalmente todos os eventos posteriores ao cursor,
+  novos eventos são detectados por consultas SQLite curtas em intervalo fixo; não há
+  notificação cross-thread nativa no SQLite.
 - Impacto: existe pequena latência entre persistência e entrega do evento.
-- Situação atual: nenhuma transação permanece aberta durante a espera e heartbeat mantém a
+- Situação atual: as consultas filtram job e sequência, usam lote limitado e não relêem o
+  histórico; nenhuma transação permanece aberta durante a espera e heartbeat mantém a
   conexão observável sem polling agressivo.
 - Possível direção futura: ajustar o intervalo após medições reais, preservando replay.
 - Fase provável: Etapa 7, integração e validação real.

@@ -5,7 +5,7 @@ A versão atual inclui importação segura e inspeção de mídia, pesquisa SQLi
 transcrição local síncrona, fila persistente com worker local, API FastAPI restrita ao
 localhost, eventos SSE e exportadores TXT, Markdown, SRT, WebVTT e JSON.
 
-Versão atual: `0.5.0`, com schema SQLite v4.
+Versão atual: `0.5.1`, com schema SQLite v4.
 
 ## Requisitos e instalação
 
@@ -94,10 +94,11 @@ O comando abaixo inicia a API e o worker local sequencial:
 local-transcriber serve
 ```
 
-O endereço padrão é `http://127.0.0.1:8765`; a documentação OpenAPI fica em
-`http://127.0.0.1:8765/api/docs`. O comando recusa bind público e múltiplos workers.
-Também existe um lock por diretório de runtime para impedir dois consumidores da mesma
-fila SQLite.
+O endereço padrão é `http://127.0.0.1:8765`. A especificação OpenAPI JSON fica disponível
+localmente em `http://127.0.0.1:8765/api/openapi.json`. Não há Swagger UI, ReDoc nem
+visualizador HTML nesta versão: isso evita dependências de CDN e mantém a operação
+completamente offline. O comando recusa bind público e múltiplos workers. Também existe
+um lock por diretório de runtime para impedir dois consumidores da mesma fila SQLite.
 
 Principais contratos:
 
@@ -111,6 +112,11 @@ Principais contratos:
 - criação, listagem e download de exportações;
 - `GET /api/recordings/{id}/media`, com suporte a Range;
 - `GET /api/jobs/{id}/events`, com SSE, heartbeat e `Last-Event-ID`.
+
+O SSE consulta apenas sequências posteriores ao último ID entregue, em lotes limitados.
+Backlogs são drenados sem aguardar entre lotes; o intervalo de polling só é aplicado após
+uma consulta incremental vazia. O schema permanece v4 e usa o índice existente por job e
+sequência.
 
 Uploads são progressivos, limitados e validados por nome, Content-Type, contêiner e
 decodificação. A API nunca aceita um caminho de arquivo do cliente e não devolve caminhos
@@ -161,3 +167,5 @@ em cargas longas, CUDA e a validação ampla permanecem pendentes para a Etapa 7
   complementar do heartbeat e da perda de posse.
 - [API local e SSE](docs/PHASE_05_LOCAL_API_AND_SSE.md): contratos HTTP, segurança,
   streaming, eventos persistentes e lifecycle do worker.
+- [Correção 5B](docs/PHASE_05B_OFFLINE_DOCS_AND_INCREMENTAL_SSE.md): OpenAPI JSON offline
+  e leitura incremental dos eventos SSE.

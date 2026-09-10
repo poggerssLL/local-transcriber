@@ -7,7 +7,7 @@
 
 O **Local Transcriber** é uma aplicação local para catalogar gravações, executar
 transcrição com Faster Whisper e exportar resultados estruturados sem depender de APIs
-de IA em nuvem. A versão atual é `0.5.0`, usa schema SQLite v4 e concluiu:
+de IA em nuvem. A versão atual é `0.5.1`, usa schema SQLite v4 e concluiu:
 
 1. fundação e persistência;
 2. biblioteca de mídia, pesquisa e exportadores;
@@ -258,9 +258,11 @@ iniciados fora do comando recomendado.
 
 Os contratos ficam sob `/api` e incluem saúde, versão, capacidades, matérias, gravações,
 pesquisa FTS5, modelos instalados, runtime, jobs, transcrições, segmentos, palavras,
-exportações, mídia e eventos. A documentação OpenAPI local fica em `/api/docs` e o schema
-em `/api/openapi.json`. Os modelos de resposta omitem caminhos físicos, caminho relativo
-interno da mídia, identificador do worker e lease.
+exportações, mídia e eventos. A especificação OpenAPI JSON local fica em
+`/api/openapi.json`. Swagger UI, ReDoc e outros visualizadores HTML não são expostos,
+porque a versão padrão dependeria de CDN e conflitaria com a operação offline. Os modelos
+de resposta omitem caminhos físicos, caminho relativo interno da mídia, identificador do
+worker e lease.
 
 Uploads usam `multipart/form-data`. O parser entrega um arquivo temporário em spool e a
 biblioteca o copia em blocos para o runtime, aplicando limite de tamanho, sanitização do
@@ -297,24 +299,31 @@ monotônica persistida do evento dentro do job. `Last-Event-ID` reproduz somente
 posteriores. Os tipos expostos são `state`, `phase`, `progress`, `failure`, `cancellation`
 e `completion`; comentários de heartbeat mantêm conexões ociosas observáveis.
 
-Cada ciclo lista eventos e consulta o job em conexões SQLite curtas. Ao observar estado
-terminal, uma releitura impede a corrida em que o estado poderia ser visto antes do último
-evento pelo stream. Não há transação aberta durante `asyncio.sleep`. O stream termina após
-entregar o evento terminal, e a perda do cliente apenas encerra o produtor HTTP.
+Cada consulta de eventos filtra `job_id` e `sequence > after_sequence`, ordena por
+sequência e aplica um limite parametrizado. O comportamento sem cursor continua retornando
+todo o histórico para consumidores existentes, mas o SSE sempre usa cursor e lote. Um
+backlog é drenado imediatamente em lotes; o intervalo de polling só ocorre depois que uma
+consulta não encontra evento novo.
+
+Ao observar estado terminal após uma consulta vazia, uma confirmação incremental cobre a
+corrida em que a transição poderia ocorrer entre a consulta e a leitura do job. Não há
+conexão nem transação aberta durante a espera. O stream termina após entregar o evento
+terminal, e a perda do cliente apenas encerra o produtor HTTP.
 
 ## Evidência de validação
 
 ### Automatizada e com doubles
 
-A suíte de 89 testes funciona sem GPU, modelo ou rede. Ela cobre configuração, domínio,
+A suíte de 95 testes funciona sem GPU, modelo ou rede. Ela cobre configuração, domínio,
 migrações v1–v4, mídia sintética, pesquisa, exportadores, perfis, ausência de download
 automático, backend injetado, consumo lazy, reivindicação concorrente, leases, recuperação,
 cancelamento, retry, progresso, publicação idempotente, falhas transacionais, recuperação
 do heartbeat após erro SQLite transitório, perda definitiva de posse, bloqueio de worker
 obsoleto, continuidade do loop, áudio longo simulado, comandos principais da CLI, contratos
 HTTP, upload, limites, Host/Origin, fila, SSE, replay, heartbeat, desconexão, Range,
-exportações, OpenAPI e lifespan. Esses testes validam comportamento determinístico, não
-qualidade de inferência.
+exportações, OpenAPI offline, ausência das rotas de documentação HTML, consultas
+incrementais limitadas, backlog em vários lotes e lifespan. Esses testes validam
+comportamento determinístico, não qualidade de inferência.
 
 ### Execução real
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import re
+import socket
 import wave
 from dataclasses import dataclass
 from pathlib import Path
@@ -137,10 +139,20 @@ def _seed_transcript(app, recording_id: str) -> Transcript:
     )
 
 
+def _terminal_job(client: TestClient) -> str:
+    recording = _upload(client, _create_subject(client))
+    _install_model(client.app)
+    job = client.post("/api/jobs", json={"recording_id": recording["id"]}).json()
+    repository = client.app.state.repository
+    repository.update_job_status(job["id"], JobStatus.RUNNING)
+    repository.update_job_status(job["id"], JobStatus.FAILED, error_message="test failure")
+    return job["id"]
+
+
 def test_health_version_capabilities_and_openapi(client: TestClient) -> None:
     assert client.get("/api/health").json() == {
         "status": "ok",
-        "version": "0.5.0",
+        "version": "0.5.1",
         "schema_version": 4,
     }
     assert client.get("/api/version").json()["api_version"] == "1"
@@ -148,8 +160,37 @@ def test_health_version_capabilities_and_openapi(client: TestClient) -> None:
     assert capabilities["model_download_via_api"] is False
     assert capabilities["sse_replay"] is True
     openapi = client.get("/api/openapi.json").json()
-    assert openapi["info"]["version"] == "0.5.0"
+    assert openapi["info"]["version"] == "0.5.1"
     assert all(path.startswith("/api/") for path in openapi["paths"])
+
+
+def test_openapi_is_offline_and_visual_docs_are_not_exposed(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def reject_network(*_args, **_kwargs):
+        raise AssertionError("network access is not allowed")
+
+    monkeypatch.setattr(socket, "create_connection", reject_network)
+    openapi = client.get("/api/openapi.json")
+    assert openapi.status_code == 200
+    assert openapi.headers["content-type"].startswith("application/json")
+    assert "cdn.jsdelivr.net" not in openapi.text
+    assert client.get("/api/health").status_code == 200
+    responses = [
+        client.get("/api/docs"),
+        client.get("/docs"),
+        client.get("/redoc"),
+        client.get("/api/redoc"),
+    ]
+    assert all(response.status_code == 404 for response in responses)
+    html_responses = [
+        response
+        for response in [openapi, *responses]
+        if response.headers.get("content-type", "").startswith("text/html")
+    ]
+    assert all(
+        re.search(r"https?://", response.text, re.IGNORECASE) is None for response in html_responses
+    )
 
 
 def test_subject_recording_upload_list_detail_search_and_delete(client: TestClient) -> None:
@@ -293,6 +334,156 @@ def test_media_streaming_supports_ranges_and_rejects_invalid_ranges(client: Test
     assert invalid.headers["content-range"].startswith("bytes */")
 
 
+def test_job_event_query_supports_incremental_cursors(client: TestClient) -> None:
+    job_id = _terminal_job(client)
+    repository = client.app.state.repository
+    all_events = repository.list_job_events(job_id)
+    assert [event.sequence for event in all_events] == [1, 2, 3]
+    assert repository.list_job_events(job_id, after_sequence=0) == all_events
+    assert [event.sequence for event in repository.list_job_events(job_id, after_sequence=1)] == [
+        2,
+        3,
+    ]
+    assert repository.list_job_events(job_id, after_sequence=3) == []
+    assert repository.list_job_events(job_id, after_sequence=99) == []
+
+
+def test_job_event_query_applies_bounded_limit_in_order(client: TestClient) -> None:
+    job_id = _terminal_job(client)
+    repository = client.app.state.repository
+    first = repository.list_job_events(job_id, after_sequence=0, limit=2)
+    second = repository.list_job_events(job_id, after_sequence=first[-1].sequence, limit=2)
+    assert [event.sequence for event in first] == [1, 2]
+    assert [event.sequence for event in second] == [3]
+    with pytest.raises(ValueError, match="non-negative"):
+        repository.list_job_events(job_id, after_sequence=-1)
+    with pytest.raises(ValueError, match="between 1 and 1000"):
+        repository.list_job_events(job_id, limit=0)
+
+
+def test_sse_drains_backlog_in_incremental_batches_without_sleep(client: TestClient) -> None:
+    job_id = _terminal_job(client)
+    repository = client.app.state.repository
+
+    class RepositorySpy:
+        def __init__(self):
+            self.database = repository.database
+            self.calls: list[tuple[int, int | None]] = []
+
+        def list_job_events(self, selected_job_id, *, after_sequence=0, limit=None):
+            assert selected_job_id == job_id
+            self.calls.append((after_sequence, limit))
+            return repository.list_job_events(
+                selected_job_id, after_sequence=after_sequence, limit=limit
+            )
+
+        def get_job(self, selected_job_id):
+            return repository.get_job(selected_job_id)
+
+    class ConnectedRequest:
+        async def is_disconnected(self) -> bool:
+            return False
+
+    async def forbidden_sleep(_seconds: float) -> None:
+        raise AssertionError("backlog draining must not wait for the poll interval")
+
+    async def consume():
+        spy = RepositorySpy()
+        chunks = [
+            chunk
+            async for chunk in stream_job_events(
+                ConnectedRequest(),
+                spy,
+                job_id,
+                0,
+                poll_interval=1,
+                heartbeat_interval=30,
+                batch_size=1,
+                sleeper=forbidden_sleep,
+            )
+        ]
+        return spy.calls, chunks
+
+    calls, chunks = asyncio.run(consume())
+    event_ids = [int(match) for match in re.findall(r"^id: (\d+)$", "".join(chunks), re.MULTILINE)]
+    assert event_ids == [1, 2, 3]
+    assert calls == [(0, 1), (1, 1), (2, 1), (3, 1), (3, 1)]
+    assert all(limit == 1 for _cursor, limit in calls)
+
+
+def test_sse_detects_terminal_event_arriving_during_polling(client: TestClient) -> None:
+    recording = _upload(client, _create_subject(client))
+    _install_model(client.app)
+    job = client.post("/api/jobs", json={"recording_id": recording["id"]}).json()
+    repository = client.app.state.repository
+    slept = False
+
+    class ConnectedRequest:
+        async def is_disconnected(self) -> bool:
+            return False
+
+    async def publish_terminal(_seconds: float) -> None:
+        nonlocal slept
+        assert not slept
+        slept = True
+        client.app.state.queue.cancel(job["id"])
+
+    async def consume():
+        return [
+            chunk
+            async for chunk in stream_job_events(
+                ConnectedRequest(),
+                repository,
+                job["id"],
+                0,
+                poll_interval=1,
+                heartbeat_interval=30,
+                batch_size=10,
+                sleeper=publish_terminal,
+            )
+        ]
+
+    body = "".join(asyncio.run(consume()))
+    assert slept is True
+    assert "id: 2\n" in body
+    assert "event: cancellation\n" in body
+
+
+def test_sse_heartbeat_with_no_events_after_cursor_is_deterministic(
+    client: TestClient,
+) -> None:
+    recording = _upload(client, _create_subject(client))
+    _install_model(client.app)
+    job = client.post("/api/jobs", json={"recording_id": recording["id"]}).json()
+
+    class ConnectedRequest:
+        async def is_disconnected(self) -> bool:
+            return False
+
+    times = iter((0.0, 2.0))
+
+    async def forbidden_sleep(_seconds: float) -> None:
+        raise AssertionError("heartbeat should be emitted before sleeping")
+
+    async def consume_two():
+        stream = stream_job_events(
+            ConnectedRequest(),
+            client.app.state.repository,
+            job["id"],
+            1,
+            poll_interval=1,
+            heartbeat_interval=1,
+            batch_size=10,
+            clock=lambda: next(times),
+            sleeper=forbidden_sleep,
+        )
+        chunks = [await anext(stream), await anext(stream)]
+        await stream.aclose()
+        return chunks
+
+    assert asyncio.run(consume_two()) == ["retry: 2000\n\n", ": heartbeat\n\n"]
+
+
 def test_sse_initial_replay_last_event_id_and_terminal_close(client: TestClient) -> None:
     recording = _upload(client, _create_subject(client))
     _install_model(client.app)
@@ -346,6 +537,7 @@ def test_sse_disconnect_does_not_cancel_job(client: TestClient) -> None:
             0,
             poll_interval=0.01,
             heartbeat_interval=0.02,
+            batch_size=10,
         ):
             chunks.append(chunk)
         return chunks

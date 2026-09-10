@@ -586,12 +586,33 @@ class Repository:
         assert result is not None
         return result
 
-    def list_job_events(self, job_id: str) -> list[JobEvent]:
+    def list_job_events(
+        self,
+        job_id: str,
+        *,
+        after_sequence: int = 0,
+        limit: int | None = None,
+    ) -> list[JobEvent]:
+        if after_sequence < 0:
+            raise ValueError("after_sequence must be non-negative")
+        if limit is not None and not 1 <= limit <= 1000:
+            raise ValueError("event limit must be between 1 and 1000")
         with self.database.connect() as connection:
-            rows = connection.execute(
-                "SELECT * FROM transcription_job_events WHERE job_id = ? ORDER BY sequence",
-                (job_id,),
-            ).fetchall()
+            if limit is None:
+                rows = connection.execute(
+                    """SELECT * FROM transcription_job_events
+                       WHERE job_id = ? AND sequence > ?
+                       ORDER BY sequence""",
+                    (job_id, after_sequence),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """SELECT * FROM transcription_job_events
+                       WHERE job_id = ? AND sequence > ?
+                       ORDER BY sequence
+                       LIMIT ?""",
+                    (job_id, after_sequence, limit),
+                ).fetchall()
         return [
             JobEvent(
                 id=row["id"],

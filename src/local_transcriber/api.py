@@ -8,7 +8,7 @@ import mimetypes
 import os
 import re
 import sqlite3
-from collections.abc import AsyncIterator, Callable, Iterator
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import date, datetime
@@ -457,33 +457,66 @@ async def stream_job_events(
     *,
     poll_interval: float,
     heartbeat_interval: float,
+    batch_size: int = 100,
+    clock: Callable[[], float] | None = None,
+    sleeper: Callable[[float], Awaitable[None]] = asyncio.sleep,
 ) -> AsyncIterator[str]:
     """Replay persisted events, then wait without retaining a SQLite connection."""
-    loop = asyncio.get_running_loop()
-    last_sent = loop.time()
+    if cursor < 0:
+        raise ValueError("cursor must be non-negative")
+    if not 1 <= batch_size <= 1000:
+        raise ValueError("batch_size must be between 1 and 1000")
+    monotonic_clock = clock or asyncio.get_running_loop().time
+    last_sent = monotonic_clock()
     yield "retry: 2000\n\n"
     while True:
-        events = await asyncio.to_thread(repository.list_job_events, job_id)
+        events = await asyncio.to_thread(
+            repository.list_job_events,
+            job_id,
+            after_sequence=cursor,
+            limit=batch_size,
+        )
+        if events:
+            job = await asyncio.to_thread(repository.get_job, job_id)
+            if job is None:
+                return
+            for event in events:
+                yield _sse_event(event, job, repository.database.path.parent)
+                cursor = event.sequence
+                last_sent = monotonic_clock()
+            if await request.is_disconnected():
+                return
+            # Query again immediately after any non-empty batch. Waiting happens
+            # only after an empty incremental query confirms the backlog is drained.
+            continue
         job = await asyncio.to_thread(repository.get_job, job_id)
         if job is None:
             return
         if job.status in TERMINAL_STATUSES:
-            # The terminal state and final event commit atomically. Re-read after
-            # observing the state so a transition between reads cannot hide it.
-            events = await asyncio.to_thread(repository.list_job_events, job_id)
-        fresh = [event for event in events if event.sequence > cursor]
-        for event in fresh:
-            yield _sse_event(event, job, repository.database.path.parent)
-            cursor = event.sequence
-            last_sent = loop.time()
-        if job.status in TERMINAL_STATUSES:
+            # State and terminal event commit together. One incremental confirmation
+            # covers a transition that happened between the query and state read.
+            terminal_events = await asyncio.to_thread(
+                repository.list_job_events,
+                job_id,
+                after_sequence=cursor,
+                limit=batch_size,
+            )
+            if terminal_events:
+                for event in terminal_events:
+                    yield _sse_event(event, job, repository.database.path.parent)
+                    cursor = event.sequence
+                    last_sent = monotonic_clock()
+                if await request.is_disconnected():
+                    return
+                if len(terminal_events) == batch_size:
+                    continue
             return
         if await request.is_disconnected():
             return
-        if loop.time() - last_sent >= heartbeat_interval:
+        if monotonic_clock() - last_sent >= heartbeat_interval:
             yield ": heartbeat\n\n"
-            last_sent = loop.time()
-        await asyncio.sleep(poll_interval)
+            last_sent = monotonic_clock()
+        await sleeper(poll_interval)
 
 
 def _parse_range(value: str | None, size: int) -> tuple[int, int] | None:
@@ -530,10 +563,13 @@ def create_app(
     worker_poll_interval: float = 0.5,
     sse_poll_interval: float = 0.5,
     sse_heartbeat_interval: float = 15.0,
+    sse_batch_size: int = 100,
 ) -> FastAPI:
     """Build an app with injectable local dependencies for deterministic tests."""
     if worker_poll_interval <= 0 or sse_poll_interval <= 0 or sse_heartbeat_interval <= 0:
         raise ValueError("poll and heartbeat intervals must be positive")
+    if not 1 <= sse_batch_size <= 1000:
+        raise ValueError("sse_batch_size must be between 1 and 1000")
     app_config = config or AppConfig.from_env()
     database = Database(app_config.paths.database)
     repository = Repository(database)
@@ -575,7 +611,7 @@ def create_app(
     app = FastAPI(
         title="Local Transcriber API",
         version=version(PACKAGE_NAME),
-        docs_url=f"{API_PREFIX}/docs",
+        docs_url=None,
         redoc_url=None,
         openapi_url=f"{API_PREFIX}/openapi.json",
         lifespan=lifespan,
@@ -937,6 +973,7 @@ def create_app(
                 cursor,
                 poll_interval=sse_poll_interval,
                 heartbeat_interval=sse_heartbeat_interval,
+                batch_size=sse_batch_size,
             ),
             media_type="text/event-stream",
             headers={"Connection": "keep-alive", "X-Accel-Buffering": "no"},
