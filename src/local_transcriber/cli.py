@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from dataclasses import asdict
 from datetime import date
@@ -99,6 +100,11 @@ def build_parser() -> argparse.ArgumentParser:
     export = commands.add_parser("export", help="export a transcript")
     export.add_argument("transcript_id")
     export.add_argument("--format", choices=[item.value for item in ExportFormat], required=True)
+
+    serve = commands.add_parser("serve", help="run the localhost HTTP API and queue worker")
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8765)
+    serve.add_argument("--workers", type=int, default=1)
     return parser
 
 
@@ -162,6 +168,19 @@ def _context() -> tuple[AppConfig, Repository, MediaLibrary]:
 
 
 def run(args: argparse.Namespace, *, out: TextIO, err: TextIO) -> int:
+    if args.command == "serve":
+        if args.host != "127.0.0.1":
+            raise ValueError("serve only accepts --host 127.0.0.1")
+        if args.workers != 1 or os.environ.get("WEB_CONCURRENCY", "1") != "1":
+            raise ValueError("serve requires exactly one worker")
+        if not 1 <= args.port <= 65535:
+            raise ValueError("port must be between 1 and 65535")
+        import uvicorn
+
+        from .api import create_app
+
+        uvicorn.run(create_app(), host=args.host, port=args.port, workers=1)
+        return 0
     config, repository, library = _context()
     if args.command == "config":
         capabilities = CTranslate2RuntimeProbe().inspect()

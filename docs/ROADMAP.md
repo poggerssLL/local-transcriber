@@ -4,8 +4,8 @@
 2. Biblioteca de mídia e exportadores — concluída.
 3. Engine Faster Whisper e CLIs — concluída.
 4. Fila persistente — concluída.
-5. API FastAPI e SSE — próxima etapa.
-6. Interface web.
+5. API FastAPI e SSE — concluída.
+6. Interface web — próxima etapa.
 7. Integração e validação real.
 8. Futuras fases de diarização, Ollama, tempo real e Home Assistant.
 
@@ -22,3 +22,8 @@ proporcionais ao risco antes de avançar.
 A Etapa 4 confirmou deterministicamente fila SQLite, worker local sequencial, progresso,
 cancelamento, retry e recuperação por lease. Nenhuma inferência real foi executada nessa
 etapa; a validação real abrangente permanece na Etapa 7.
+
+A Etapa 5 expôs os serviços locais sob `/api`, com upload progressivo, fila obrigatória,
+streaming controlado de mídia e exportações, SSE persistente com replay e worker integrado
+ao ciclo de vida. A validação usou TestClient, mídia sintética, engine falso e runtime
+temporário; não executou inferência real nem baixou modelos.

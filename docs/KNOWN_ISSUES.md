@@ -124,10 +124,31 @@ só, uma tarefa autorizada; qualquer mudança continua dependente do escopo soli
 - Possível direção futura: executar cenários sanitizados de carga e interrupção reais.
 - Fase provável: Etapa 7, integração e validação real.
 
-## API, SSE e frontend ausentes
+## Frontend ausente
 
-- Descrição: a versão atual não oferece API HTTP, eventos SSE nem interface web.
-- Impacto: não há uso pelo navegador nem acompanhamento via servidor local.
-- Situação atual: componentes planejados para fases posteriores.
-- Possível direção futura: FastAPI e SSE, seguidos por frontend vanilla sem CDN.
-- Fase provável: API e SSE na Etapa 5; interface web na Etapa 6.
+- Descrição: a API HTTP e o SSE existem, mas ainda não há interface web.
+- Impacto: o uso atual ocorre por CLI, clientes HTTP ou documentação OpenAPI local.
+- Situação atual: a API fornece os contratos necessários sem antecipar assets visuais.
+- Possível direção futura: frontend vanilla servido localmente e sem CDN.
+- Fase provável: Etapa 6.
+
+## Encerramento aguarda a operação corrente do engine
+
+- Descrição: o shutdown impede novas reivindicações, mas não interrompe à força uma chamada
+  indivisível do engine já em andamento.
+- Impacto: encerrar o servidor durante carregamento ou inferência pode aguardar o ponto em
+  que o job termina ou observa seu cancelamento cooperativo.
+- Situação atual: a política evita abandonar uma thread de inferência ou cancelar um job
+  apenas porque o servidor recebeu shutdown.
+- Possível direção futura: medir a latência real e avaliar pontos adicionais de cooperação.
+- Fase provável: Etapa 7, integração e validação real.
+
+## SSE usa consulta periódica conservadora
+
+- Descrição: novos eventos são detectados por consultas SQLite curtas em intervalo fixo;
+  não há notificação cross-thread nativa no SQLite.
+- Impacto: existe pequena latência entre persistência e entrega do evento.
+- Situação atual: nenhuma transação permanece aberta durante a espera e heartbeat mantém a
+  conexão observável sem polling agressivo.
+- Possível direção futura: ajustar o intervalo após medições reais, preservando replay.
+- Fase provável: Etapa 7, integração e validação real.

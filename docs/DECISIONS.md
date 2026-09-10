@@ -214,3 +214,45 @@ revertam escolhas anteriores sem compreender suas consequências.
   consumo lazy do Faster Whisper.
 - Consequências: cancelamento pode aguardar carregamento do modelo ou outra operação
   indivisível; interrupções do processo são recuperadas pela lease.
+
+## ADR-025 — API versionada e restrita ao loopback
+
+- Data: 2026-09-10
+- Status: aceita
+- Decisão: expor contratos FastAPI sob `/api` e iniciar o servidor somente em
+  `127.0.0.1`, validando `Host` e `Origin` local nas mutações.
+- Motivo: permitir uso futuro pelo navegador sem transformar o produto em um serviço de
+  rede pública nem revelar dados pessoais.
+- Consequências: bind público é recusado, CORS wildcard não é habilitado e clientes locais
+  usam a mesma origem ou uma origem HTTP de localhost aprovada.
+
+## ADR-026 — Um consumidor por runtime no ciclo de vida HTTP
+
+- Data: 2026-09-10
+- Status: aceita
+- Decisão: iniciar um worker sequencial no lifespan da aplicação e manter um lock de
+  processo por runtime, recusando múltiplos consumidores Uvicorn.
+- Motivo: evitar que uma configuração HTTP com vários processos duplique consumidores da
+  fila SQLite e carregamentos de modelo.
+- Consequências: `serve` exige um worker; o shutdown impede novas reivindicações e aguarda
+  a operação corrente terminar antes de liberar o lock.
+
+## ADR-027 — SSE reproduzido dos eventos SQLite
+
+- Data: 2026-09-10
+- Status: aceita
+- Decisão: usar a sequência persistida por job como ID SSE, aceitar `Last-Event-ID`, enviar
+  heartbeat e encerrar após o evento terminal.
+- Motivo: recuperar eventos perdidos após reconexão sem manter progresso apenas em memória.
+- Consequências: cada consulta abre e fecha sua conexão antes da espera; desconectar o
+  navegador não cancela o job e a latência acompanha o intervalo conservador de consulta.
+
+## ADR-028 — Mídia e exportações somente por identificadores
+
+- Data: 2026-09-10
+- Status: aceita
+- Decisão: servir mídia e exportações gerenciadas por IDs, resolvendo internamente caminhos
+  relativos já validados, com suporte a um Range de bytes para reprodução.
+- Motivo: habilitar seek e downloads sem aceitar caminhos fornecidos pelo cliente.
+- Consequências: ranges inválidos recebem 416, respostas omitem caminhos físicos e arquivos
+  ausentes são tratados como inconsistência do runtime.

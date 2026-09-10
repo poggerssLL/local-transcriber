@@ -1058,3 +1058,21 @@ class Repository:
             )
             for r in rows
         ]
+
+    def get_artifact(self, artifact_id: str) -> ExportedArtifact | None:
+        with self.database.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM exported_artifacts WHERE id = ?", (artifact_id,)
+            ).fetchone()
+        if row is None:
+            return None
+        return ExportedArtifact(
+            id=row["id"],
+            transcript_id=row["transcript_id"],
+            kind=row["kind"],
+            relative_path=row["relative_path"],
+            media_type=row["media_type"],
+            size_bytes=row["size_bytes"],
+            sha256=row["sha256"],
+            created_at=_dt(row["created_at"]),
+        )

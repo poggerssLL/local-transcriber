@@ -1,27 +1,36 @@
 # Estado atual do projeto
 
-> Fotografia verificada em 2026-09-10 após a correção complementar 4B. Atualize este documento ao fim de cada fase;
+> Fotografia verificada em 2026-09-10 após a Etapa 5. Atualize este documento ao fim de cada fase;
 > não reescreva os relatórios históricos de fases concluídas.
 
 O **Local Transcriber** é uma aplicação local para catalogar gravações e persistir o
 ciclo de vida de transcrições. A arquitetura atual é um pacote Python com modelos de
 domínio, biblioteca de mídia, engine desacoplado, fila persistente, worker local, CLI,
-exportadores determinísticos e persistência de metadados em SQLite; mídias, modelos e
-demais dados de runtime ficam fora do repositório.
+API FastAPI restrita ao localhost, eventos SSE, exportadores determinísticos e
+persistência de metadados em SQLite; mídias, modelos e demais dados de runtime ficam fora
+do repositório.
 
-- Versão do pacote: `0.4.1`.
+- Versão do pacote: `0.5.0`.
 - Schema SQLite: v4.
 - Etapas concluídas: 1, fundação e persistência; 2, biblioteca de mídia e exportadores;
-  3, Faster Whisper, gerenciamento explícito de modelos e CLI; 4, fila persistente.
+  3, Faster Whisper, gerenciamento explícito de modelos e CLI; 4, fila persistente;
+  5, API HTTP local e SSE.
 - Funcionalidades disponíveis: configuração de runtime, catálogo de matérias e gravações,
   importação e inspeção de mídia por PyAV, duplicidade exata por SHA-256, pesquisa FTS5,
   persistência do domínio, transcrição síncrona, enfileiramento, worker local sequencial,
   progresso e eventos persistentes, cancelamento, retry, recuperação por lease e exportação
-  TXT, Markdown, SRT, WebVTT e JSON; um único entrypoint expõe esses serviços.
-- Dependências de runtime validadas: PyAV 16.1.0, Faster Whisper 1.2.1 e CTranslate2 4.8.2.
-- Última validação registrada nesta fotografia: 72 testes aprovados.
+  TXT, Markdown, SRT, WebVTT e JSON; API versionada sob `/api`, upload progressivo,
+  streaming de mídia com Range, downloads de exportações e replay de eventos SSE por
+  `Last-Event-ID`; um único entrypoint expõe esses serviços.
+- Dependências validadas: PyAV 16.1.0, Faster Whisper 1.2.1, CTranslate2 4.8.2,
+  FastAPI 0.116.2, Starlette 0.48.0, Uvicorn 0.52.4 e python-multipart 0.0.32.
+- Última validação registrada nesta fotografia: 89 testes aprovados e inicialização HTTP
+  real em `127.0.0.1`.
 - Commit funcional verificado da Etapa 3: `b28da0480bee08f533a338001284b36e2a6565bc`.
-- Próxima etapa: Etapa 5, API FastAPI e SSE.
+- Próxima etapa: Etapa 6, interface web vanilla sem CDN.
+- `local-transcriber serve` aceita somente `127.0.0.1` e um consumidor de fila por
+  runtime. `Host` e `Origin` são validados, respostas não expõem caminhos físicos e a API
+  não inicia downloads de modelos.
 - A fila usa estados públicos preservados e fases operacionais separadas. A reivindicação
   é transacional e condicionada ao estado; a posse usa worker e lease renovável.
 - Falhas SQLite transitórias do heartbeat têm retry limitado enquanto há margem segura.
@@ -53,5 +62,6 @@ Referências: [contrato](PROJECT_CONTRACT.md), [arquitetura viva](FOUNDATION.md)
 [Etapa 2](PHASE_02_MEDIA_LIBRARY.md), [Etapa 3](PHASE_03_WHISPER_AND_CLI.md),
 [validação real 3B](PHASE_03B_REAL_VALIDATION.md),
 [segunda validação real 3C](PHASE_03C_SECOND_REAL_VALIDATION.md) e
-[Etapa 4](PHASE_04_PERSISTENT_QUEUE.md) e
-[correção complementar 4B](PHASE_04B_LEASE_RELIABILITY.md).
+[Etapa 4](PHASE_04_PERSISTENT_QUEUE.md),
+[correção complementar 4B](PHASE_04B_LEASE_RELIABILITY.md) e
+[Etapa 5](PHASE_05_LOCAL_API_AND_SSE.md).

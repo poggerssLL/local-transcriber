@@ -58,6 +58,17 @@ def test_cli_parser_exposes_transcription_defaults() -> None:
     assert queued.model == "small"
     assert queued.max_attempts == 3
     assert build_parser().parse_args(["worker", "run", "--once"]).once is True
+    serve = build_parser().parse_args(["serve"])
+    assert serve.host == "127.0.0.1"
+    assert serve.port == 8765
+    assert serve.workers == 1
+
+
+def test_cli_serve_rejects_public_bind_and_multiple_workers() -> None:
+    with pytest.raises(ValueError, match="127.0.0.1"):
+        invoke(["serve", "--host", "0.0.0.0"])
+    with pytest.raises(ValueError, match="exactly one worker"):
+        invoke(["serve", "--workers", "2"])
 
 
 def test_cli_import_list_transcribe_guard_and_delete(tmp_path, monkeypatch) -> None:

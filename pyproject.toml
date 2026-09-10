@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "local-transcriber"
-version = "0.4.1"
+version = "0.5.0"
 description = "Local-first media library and transcription data core"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -13,14 +13,22 @@ authors = [{ name = "Local Transcriber contributors" }]
 dependencies = [
     "av>=15,<17",
     "ctranslate2==4.8.2",
+    "fastapi>=0.116,<0.117",
     "faster-whisper==1.2.1",
+    "python-multipart>=0.0.20,<1",
+    "uvicorn>=0.35,<1",
 ]
 
 [project.scripts]
 local-transcriber = "local_transcriber.cli:main"
 
 [project.optional-dependencies]
-dev = ["pytest>=8.3,<9", "ruff>=0.9,<1"]
+dev = [
+    "anyio>=4.4,<4.15",
+    "httpx>=0.28,<1",
+    "pytest>=8.3,<9",
+    "ruff>=0.9,<1",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

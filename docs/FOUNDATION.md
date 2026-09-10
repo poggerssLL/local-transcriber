@@ -7,15 +7,16 @@
 
 O **Local Transcriber** é uma aplicação local para catalogar gravações, executar
 transcrição com Faster Whisper e exportar resultados estruturados sem depender de APIs
-de IA em nuvem. A versão atual é `0.4.1`, usa schema SQLite v4 e concluiu:
+de IA em nuvem. A versão atual é `0.5.0`, usa schema SQLite v4 e concluiu:
 
 1. fundação e persistência;
 2. biblioteca de mídia, pesquisa e exportadores;
 3. Faster Whisper, modelos explícitos e CLI;
-4. fila persistente e worker local.
+4. fila persistente e worker local;
+5. API FastAPI local e eventos SSE persistentes.
 
-A próxima etapa planejada é a API FastAPI com SSE. Interface web, diarização,
-Ollama, microfone ao vivo e Home Assistant ainda não foram implementados.
+A próxima etapa planejada é a interface web vanilla. Diarização, Ollama, microfone ao
+vivo e Home Assistant ainda não foram implementados.
 
 ## Estrutura do repositório
 
@@ -43,6 +44,7 @@ Local Transcriber/
 │   ├── models_manager.py
 │   ├── transcription.py
 │   ├── queueing.py
+│   ├── api.py
 │   ├── cli.py
 │   └── __main__.py
 └── tests/
@@ -63,6 +65,7 @@ O pacote usa layout `src/`, Python 3.11 ou superior e um único entrypoint insta
 - `models_manager.py`: lista, verifica e baixa modelos somente mediante confirmação.
 - `transcription.py`: abstrai o engine, resolve perfis e coordena a transcrição.
 - `queueing.py`: enfileira trabalhos e executa o worker local sequencial com leases.
+- `api.py`: define os contratos `/api`, segurança HTTP, streaming, SSE e lifespan.
 - `cli.py`: expõe os serviços existentes sem duplicar regras de negócio.
 
 ## Configuração e RuntimePaths
@@ -240,22 +243,78 @@ O entrypoint oferece:
 - `worker run [--once]`;
 - `transcripts list|show`;
 - `export` para TXT, Markdown, SRT, WebVTT e JSON;
+- `serve [--host 127.0.0.1] [--port 8765] [--workers 1]`;
 - `--help` e `--version`.
 
 A CLI compõe `MediaLibrary`, `Repository`, `ModelManager`, `TranscriptionService` e
 `TranscriptExporter`; ela não replica suas regras.
 
+## API HTTP local
+
+`local-transcriber serve` inicia FastAPI e Uvicorn em `127.0.0.1:8765` por padrão. O
+comando recusa outro host e quantidade de workers diferente de 1. Um lock mantido sob o
+runtime também impede que dois processos HTTP consumam a mesma fila, inclusive se forem
+iniciados fora do comando recomendado.
+
+Os contratos ficam sob `/api` e incluem saúde, versão, capacidades, matérias, gravações,
+pesquisa FTS5, modelos instalados, runtime, jobs, transcrições, segmentos, palavras,
+exportações, mídia e eventos. A documentação OpenAPI local fica em `/api/docs` e o schema
+em `/api/openapi.json`. Os modelos de resposta omitem caminhos físicos, caminho relativo
+interno da mídia, identificador do worker e lease.
+
+Uploads usam `multipart/form-data`. O parser entrega um arquivo temporário em spool e a
+biblioteca o copia em blocos para o runtime, aplicando limite de tamanho, sanitização do
+nome, verificação de Content-Type, extensão, contêiner, stream de áudio e decodificação.
+A verificação de Content-Type é uma barreira adicional; a aceitação nunca depende apenas
+do valor declarado ou da extensão. A API recebe bytes e metadados, nunca um caminho do
+cliente.
+
+Toda transcrição criada pela API entra primeiro na fila. O worker integrado ao lifespan
+é uma thread controlada, sequencial e usa os mesmos leases e publicação transacional da
+Etapa 4. Encerrar a aplicação impede novas reivindicações e aguarda a operação corrente;
+desconectar uma requisição ou SSE não cancela o job. Downloads de modelo continuam
+exclusivos da CLI explícita e a API somente informa o comando necessário.
+
+Mídia é resolvida internamente pelo ID da gravação e suporta uma faixa de bytes por
+requisição, com `Accept-Ranges`, `Content-Range`, 206 e 416. Exportações são resolvidas por
+ID de artefato e entregues como anexos; nenhum endpoint resolve caminhos fornecidos pelo
+cliente.
+
+### Segurança HTTP
+
+- bind suportado somente em `127.0.0.1`;
+- `Host` limitado a loopback/localhost e `Origin` HTTP local validado em mutações;
+- nenhum CORS wildcard;
+- erros de domínio sanitizados e erros internos sem stack trace;
+- `nosniff`, bloqueio de frames, política de referrer, CSP restritiva e `no-store`;
+- contratos OpenAPI sem exemplos de dados pessoais;
+- um consumidor de fila por runtime.
+
+### SSE persistente
+
+`GET /api/jobs/{job_id}/events` transmite `text/event-stream`. O campo `id` é a sequência
+monotônica persistida do evento dentro do job. `Last-Event-ID` reproduz somente sequências
+posteriores. Os tipos expostos são `state`, `phase`, `progress`, `failure`, `cancellation`
+e `completion`; comentários de heartbeat mantêm conexões ociosas observáveis.
+
+Cada ciclo lista eventos e consulta o job em conexões SQLite curtas. Ao observar estado
+terminal, uma releitura impede a corrida em que o estado poderia ser visto antes do último
+evento pelo stream. Não há transação aberta durante `asyncio.sleep`. O stream termina após
+entregar o evento terminal, e a perda do cliente apenas encerra o produtor HTTP.
+
 ## Evidência de validação
 
 ### Automatizada e com doubles
 
-A suíte de 72 testes funciona sem GPU, modelo ou rede. Ela cobre configuração, domínio,
+A suíte de 89 testes funciona sem GPU, modelo ou rede. Ela cobre configuração, domínio,
 migrações v1–v4, mídia sintética, pesquisa, exportadores, perfis, ausência de download
 automático, backend injetado, consumo lazy, reivindicação concorrente, leases, recuperação,
 cancelamento, retry, progresso, publicação idempotente, falhas transacionais, recuperação
 do heartbeat após erro SQLite transitório, perda definitiva de posse, bloqueio de worker
-obsoleto, continuidade do loop, áudio longo simulado e comandos principais da CLI. Esses
-testes validam comportamento determinístico, não qualidade de inferência.
+obsoleto, continuidade do loop, áudio longo simulado, comandos principais da CLI, contratos
+HTTP, upload, limites, Host/Origin, fila, SSE, replay, heartbeat, desconexão, Range,
+exportações, OpenAPI e lifespan. Esses testes validam comportamento determinístico, não
+qualidade de inferência.
 
 ### Execução real
 
@@ -293,7 +352,9 @@ horas confirma ausência de timeout artificial no domínio, não desempenho de c
   ainda pode apresentar erros;
 - qualquer adaptação contextual futura exige escopo próprio e avaliação com gabarito;
 - CUDA não foi validada ponta a ponta;
-- API, SSE e interface web ainda não existem;
+- interface web ainda não existe;
+- shutdown pode aguardar uma operação indivisível do engine;
+- SSE detecta eventos por consultas SQLite curtas e possui pequena latência de entrega;
 - diarização, Ollama, microfone ao vivo e Home Assistant permanecem fora do MVP.
 
 Consulte [estado atual](PROJECT_STATE.md), [decisões](DECISIONS.md),

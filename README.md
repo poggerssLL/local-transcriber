@@ -2,10 +2,10 @@
 
 Aplicação local para catalogar gravações e executar transcrição com Faster Whisper.
 A versão atual inclui importação segura e inspeção de mídia, pesquisa SQLite FTS5,
-transcrição local síncrona, fila persistente com worker local e exportadores TXT,
-Markdown, SRT, WebVTT e JSON.
+transcrição local síncrona, fila persistente com worker local, API FastAPI restrita ao
+localhost, eventos SSE e exportadores TXT, Markdown, SRT, WebVTT e JSON.
 
-Versão atual: `0.4.1`, com schema SQLite v4.
+Versão atual: `0.5.0`, com schema SQLite v4.
 
 ## Requisitos e instalação
 
@@ -66,6 +66,7 @@ local-transcriber worker run
 local-transcriber transcripts list
 local-transcriber transcripts show ID
 local-transcriber export ID --format srt
+local-transcriber serve
 ```
 
 `models download` é a única operação que pode obter um modelo e exige `--confirm`.
@@ -84,6 +85,45 @@ mais ser garantida. Somente o proprietário da lease válida pode persistir prog
 publicar. Após uma expiração pode haver breve sobreposição de computação até o worker
 obsoleto alcançar um ponto cooperativo, mas a publicação transacional impede dois
 resultados finais para o mesmo job.
+
+## API local
+
+O comando abaixo inicia a API e o worker local sequencial:
+
+```powershell
+local-transcriber serve
+```
+
+O endereço padrão é `http://127.0.0.1:8765`; a documentação OpenAPI fica em
+`http://127.0.0.1:8765/api/docs`. O comando recusa bind público e múltiplos workers.
+Também existe um lock por diretório de runtime para impedir dois consumidores da mesma
+fila SQLite.
+
+Principais contratos:
+
+- `GET /api/health`, `/api/version` e `/api/capabilities`;
+- `GET|POST /api/subjects`;
+- `GET|POST /api/recordings` e `GET|DELETE /api/recordings/{id}`;
+- `GET /api/search?q=...`;
+- `GET /api/models` e `/api/runtime`;
+- `GET|POST /api/jobs`, detalhes, cancelamento e retry;
+- `GET /api/transcripts`, detalhes, segmentos e palavras;
+- criação, listagem e download de exportações;
+- `GET /api/recordings/{id}/media`, com suporte a Range;
+- `GET /api/jobs/{id}/events`, com SSE, heartbeat e `Last-Event-ID`.
+
+Uploads são progressivos, limitados e validados por nome, Content-Type, contêiner e
+decodificação. A API nunca aceita um caminho de arquivo do cliente e não devolve caminhos
+físicos. `Host` e `Origin` local são validados, não há CORS wildcard e erros internos não
+retornam stack trace. Toda transcrição criada pela API passa pela fila; desconectar o SSE
+não cancela o job.
+
+Modelos ausentes são informados com a ação necessária. O download continua disponível
+somente pela CLI explícita:
+
+```powershell
+local-transcriber models download small --confirm
+```
 
 Perfis de execução:
 
@@ -119,3 +159,5 @@ em cargas longas, CUDA e a validação ampla permanecem pendentes para a Etapa 7
 - [Fila persistente](docs/PHASE_04_PERSISTENT_QUEUE.md): relatório histórico da Etapa 4.
 - [Confiabilidade de lease 4B](docs/PHASE_04B_LEASE_RELIABILITY.md): correção
   complementar do heartbeat e da perda de posse.
+- [API local e SSE](docs/PHASE_05_LOCAL_API_AND_SSE.md): contratos HTTP, segurança,
+  streaming, eventos persistentes e lifecycle do worker.
