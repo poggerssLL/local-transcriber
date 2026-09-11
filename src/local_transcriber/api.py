@@ -176,6 +176,7 @@ class JobResponse(ApiModel):
     finished_at: datetime | None
     cancel_requested_at: datetime | None
     error_message: str | None
+    last_event_sequence: int
     created_at: datetime
     updated_at: datetime
 
@@ -361,7 +362,7 @@ def _recording_payload(recording: Recording) -> RecordingResponse:
     )
 
 
-def _job_payload(job: TranscriptionJob, root: Path) -> JobResponse:
+def _job_payload(job: TranscriptionJob, root: Path, *, last_event_sequence: int = 0) -> JobResponse:
     return JobResponse(
         id=job.id,
         recording_id=job.recording_id,
@@ -378,6 +379,7 @@ def _job_payload(job: TranscriptionJob, root: Path) -> JobResponse:
         finished_at=job.finished_at,
         cancel_requested_at=job.cancel_requested_at,
         error_message=None if job.error_message is None else _safe_message(job.error_message, root),
+        last_event_sequence=last_event_sequence,
         created_at=job.created_at,
         updated_at=job.updated_at,
     )
@@ -684,6 +686,17 @@ def create_app(
     app.state.worker_controller = controller
     app.state.worker_lock = worker_lock
 
+    def job_payload(job: TranscriptionJob) -> JobResponse:
+        # Read the cursor before refreshing the job. A concurrent event can then be
+        # replayed, but the response can never skip an event newer than its snapshot.
+        event_sequence = repository.last_job_event_sequence(job.id)
+        snapshot = repository.get_job(job.id) or job
+        return _job_payload(
+            snapshot,
+            app_config.paths.root,
+            last_event_sequence=event_sequence,
+        )
+
     app.mount("/assets", StaticFiles(directory=WEB_ROOT), name="web-assets")
 
     @app.middleware("http")
@@ -892,7 +905,7 @@ def create_app(
 
     @app.get(f"{API_PREFIX}/jobs", response_model=list[JobResponse])
     def list_jobs(status: JobStatus | None = None) -> list[JobResponse]:
-        return [_job_payload(item, app_config.paths.root) for item in repository.list_jobs(status)]
+        return [job_payload(item) for item in repository.list_jobs(status)]
 
     @app.post(f"{API_PREFIX}/jobs", response_model=JobResponse, status_code=202)
     def create_job(payload: JobCreate) -> JobResponse:
@@ -904,9 +917,8 @@ def create_app(
             word_timestamps=payload.word_timestamps,
             vad_filter=payload.vad_filter,
         )
-        return _job_payload(
-            queue.enqueue(payload.recording_id, settings, max_attempts=payload.max_attempts),
-            app_config.paths.root,
+        return job_payload(
+            queue.enqueue(payload.recording_id, settings, max_attempts=payload.max_attempts)
         )
 
     @app.get(f"{API_PREFIX}/jobs/{{job_id}}", response_model=JobResponse)
@@ -914,15 +926,15 @@ def create_app(
         job = repository.get_job(job_id)
         if job is None:
             raise KeyError("job not found")
-        return _job_payload(job, app_config.paths.root)
+        return job_payload(job)
 
     @app.post(f"{API_PREFIX}/jobs/{{job_id}}/cancel", response_model=JobResponse)
     def cancel_job(job_id: str) -> JobResponse:
-        return _job_payload(queue.cancel(job_id), app_config.paths.root)
+        return job_payload(queue.cancel(job_id))
 
     @app.post(f"{API_PREFIX}/jobs/{{job_id}}/retry", response_model=JobResponse)
     def retry_job(job_id: str) -> JobResponse:
-        return _job_payload(queue.retry(job_id), app_config.paths.root)
+        return job_payload(queue.retry(job_id))
 
     @app.get(f"{API_PREFIX}/transcripts", response_model=list[TranscriptResponse])
     def list_transcripts(recording_id: str | None = None) -> list[TranscriptResponse]:
@@ -1022,16 +1034,18 @@ def create_app(
     async def job_events(
         request: Request,
         job_id: str,
+        after_sequence: Annotated[int | None, Query(ge=0)] = None,
         last_event_id: str | None = Header(None, alias="Last-Event-ID"),
     ) -> StreamingResponse:
         if repository.get_job(job_id) is None:
             raise KeyError("job not found")
         try:
-            cursor = 0 if last_event_id is None else int(last_event_id)
-            if cursor < 0:
+            header_cursor = 0 if last_event_id is None else int(last_event_id)
+            if header_cursor < 0:
                 raise ValueError
         except ValueError as error:
             raise ValueError("Last-Event-ID must be a non-negative integer") from error
+        cursor = max(after_sequence or 0, header_cursor)
 
         return StreamingResponse(
             stream_job_events(

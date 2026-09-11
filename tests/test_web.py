@@ -75,6 +75,7 @@ def test_web_shell_and_assets_are_local_and_work_without_network(
         "/assets/styles.css": web_client.get("/assets/styles.css"),
         "/assets/app.js": web_client.get("/assets/app.js"),
         "/assets/api.js": web_client.get("/assets/api.js"),
+        "/assets/async_state.js": web_client.get("/assets/async_state.js"),
         "/assets/dom.js": web_client.get("/assets/dom.js"),
     }
     assert all(response.status_code == 200 for response in responses.values())
@@ -123,16 +124,19 @@ def test_frontend_uses_safe_dom_modular_javascript_and_persistent_sse(
 ) -> None:
     app_source = web_client.get("/assets/app.js").text
     api_source = web_client.get("/assets/api.js").text
+    async_source = web_client.get("/assets/async_state.js").text
     dom_source = web_client.get("/assets/dom.js").text
-    combined = "\n".join((app_source, api_source, dom_source))
+    combined = "\n".join((app_source, api_source, async_source, dom_source))
     for unsafe_sink in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval("):
         assert unsafe_sink not in combined
     assert "textContent" in combined
     assert "document.createElement" in combined
-    assert "new EventSource(`${API_ROOT}/jobs/" in api_source
+    assert "new EventSource(" in api_source
+    assert "after_sequence=${cursor}" in api_source
     assert "event.lastEventId" in api_source
     assert 'new Event("local-api-offline")' in api_source
     assert 'state.streamStates.set(jobId, "reconnecting")' in app_source
+    assert "new JobEventTracker()" in app_source
     assert "connectActiveJobs();" in app_source
     assert "player.currentTime = segment.start_seconds" in app_source
     assert "download.click()" in app_source
@@ -227,6 +231,6 @@ def test_runtime_reports_stopped_worker_to_interface(web_client: TestClient) -> 
 
 def test_openapi_keeps_web_shell_outside_versioned_api(web_client: TestClient) -> None:
     schema = web_client.get("/api/openapi.json").json()
-    assert schema["info"]["version"] == "0.6.1"
+    assert schema["info"]["version"] == "0.6.2"
     assert "/" not in schema["paths"]
     assert all(path.startswith("/api/") for path in schema["paths"])

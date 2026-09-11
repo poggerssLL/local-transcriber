@@ -38,3 +38,9 @@ A correção complementar 5C removeu a contenção de escrita causada pelo polli
 com fila vazia. A pré-consulta é somente leitura, enquanto recuperação e reivindicação
 continuam atômicas sob `BEGIN IMMEDIATE`; falhas SQLite transitórias recebem retry limitado.
 A Etapa 7 permanece a próxima etapa e não foi iniciada por essa correção.
+
+A correção complementar 6B tornou o estado assíncrono do frontend monotônico. Cargas,
+pesquisas, leituras, exportações e erros obsoletos não substituem mais o contexto recente;
+o SSE usa cursor inicial do snapshot e sequência independente por job para rejeitar replay,
+duplicação, regressão e callbacks de listeners encerrados. O schema continua v4, a operação
+continua offline e a Etapa 7 não foi iniciada por essa correção.

@@ -5,7 +5,7 @@ A versão atual inclui importação segura e inspeção de mídia, pesquisa SQLi
 transcrição local síncrona, fila persistente com worker local, API FastAPI restrita ao
 localhost, interface web local, eventos SSE e exportadores TXT, Markdown, SRT, WebVTT e JSON.
 
-Versão atual: `0.6.1`, com schema SQLite v4.
+Versão atual: `0.6.2`, com schema SQLite v4.
 
 ## Requisitos e instalação
 
@@ -123,7 +123,8 @@ Principais contratos:
 O SSE consulta apenas sequências posteriores ao último ID entregue, em lotes limitados.
 Backlogs são drenados sem aguardar entre lotes; o intervalo de polling só é aplicado após
 uma consulta incremental vazia. O schema permanece v4 e usa o índice existente por job e
-sequência.
+sequência. Snapshots de job informam o cursor persistido e o endpoint aceita
+`after_sequence` sem substituir o suporte a `Last-Event-ID`.
 
 Uploads são progressivos, limitados e validados por nome, Content-Type, contêiner e
 decodificação. A API nunca aceita um caminho de arquivo do cliente e não devolve caminhos
@@ -149,6 +150,12 @@ internet. Ela permite:
 - cancelar ou repetir jobs, reproduzir a mídia e navegar por segmentos temporais;
 - ler texto e métricas e baixar TXT, Markdown, SRT, WebVTT e JSON;
 - verificar modelos instalados e copiar a orientação explícita da CLI quando faltarem.
+
+Cargas, pesquisas e leituras usam gerações monotônicas e cancelamento HTTP quando
+disponível, por isso uma resposta antiga não substitui a seleção mais recente. Cada job
+mantém seu próprio cursor SSE; eventos duplicados, regressivos, fora de ordem e callbacks
+de listeners encerrados são descartados. Exportações iniciadas continuam baixando o
+artefato solicitado, mas só atualizam controles se a mesma transcrição ainda estiver aberta.
 
 Os dados da API são inseridos no DOM como texto, sem interpretação como HTML. O layout
 oferece navegação por teclado, foco visível, regiões de anúncio e adaptação para notebooks
@@ -203,3 +210,5 @@ em cargas longas, CUDA e a validação ampla permanecem pendentes para a Etapa 7
   fluxos locais e validação visual da Etapa 6.
 - [Confiabilidade SQLite 5C](docs/PHASE_05C_SQLITE_CONTENTION_RELIABILITY.md): prevenção
   de contenção no polling ocioso e retry limitado da reivindicação.
+- [Confiabilidade assíncrona 6B](docs/PHASE_06B_ASYNC_CONCURRENCY_RELIABILITY.md):
+  gerações de requisição, contexto de exportação e ordenação SSE por job.

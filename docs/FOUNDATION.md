@@ -7,7 +7,7 @@
 
 O **Local Transcriber** é uma aplicação local para catalogar gravações, executar
 transcrição com Faster Whisper e exportar resultados estruturados sem depender de APIs
-de IA em nuvem. A versão atual é `0.6.1`, usa schema SQLite v4 e concluiu:
+de IA em nuvem. A versão atual é `0.6.2`, usa schema SQLite v4 e concluiu:
 
 1. fundação e persistência;
 2. biblioteca de mídia, pesquisa e exportadores;
@@ -50,6 +50,7 @@ Local Transcriber/
 │   │   ├── index.html
 │   │   ├── styles.css
 │   │   ├── api.js
+│   │   ├── async_state.js
 │   │   ├── dom.js
 │   │   └── app.js
 │   ├── cli.py
@@ -320,6 +321,13 @@ monotônica persistida do evento dentro do job. `Last-Event-ID` reproduz somente
 posteriores. Os tipos expostos são `state`, `phase`, `progress`, `failure`, `cancellation`
 e `completion`; comentários de heartbeat mantêm conexões ociosas observáveis.
 
+Respostas de job incluem `last_event_sequence`, obtido por consulta agregada e
+parametrizada para o próprio job. A consulta ocorre antes da atualização do snapshot:
+uma corrida pode reapresentar um evento, que o cliente rejeita pelo ID, mas nunca avançar
+o cursor além do estado representado e perder um terminal. O endpoint aceita ainda
+`after_sequence`; quando também existe `Last-Event-ID`, usa o maior cursor sem quebrar
+consumidores anteriores.
+
 Cada consulta de eventos filtra `job_id` e `sequence > after_sequence`, ordena por
 sequência e aplica um limite parametrizado. O comportamento sem cursor continua retornando
 todo o histórico para consumidores existentes, mas o SSE sempre usa cursor e lote. Um
@@ -352,6 +360,19 @@ SQLite após recarga, e cada job não terminal recebe um `EventSource`. O navega
 o último ID entregue na reconexão nativa, enquanto o backend garante replay persistente.
 Estados de desconexão e recuperação são anunciados sem cancelar o trabalho.
 
+Requisições de carga global, pesquisa e leitura usam gerações monotônicas e
+`AbortController`. Depois de cada espera assíncrona, o contexto é validado antes de
+alterar estado, DOM ou mensagens; respostas e falhas de seleções antigas são descartadas.
+Exportações mantêm escopo próprio por transcrição e formato: o download usa o ID do
+artefato efetivamente solicitado, mas controles e avisos só são atualizados se a leitura
+original ainda estiver ativa.
+
+Um rastreador independente por job preserva a última sequência SSE aceita. O frontend
+abre o stream a partir do cursor do snapshot e rejeita IDs inválidos, repetidos, menores,
+fora de ordem ou divergentes do payload. Gerações de listener descartam callbacks tardios
+após fechamento; jobs simultâneos não compartilham cursor e o estado é removido quando o
+job deixa o snapshot da biblioteca.
+
 A leitura usa o endpoint controlado de mídia, aceita seek por timestamps clicáveis e
 apresenta texto integral, idioma, métricas, segmentos e probabilidades somente quando
 existem. Exportações nos cinco formatos podem ser criadas e baixadas pelos IDs gerenciados.
@@ -372,7 +393,8 @@ overflow horizontal da página.
 
 ### Automatizada e com doubles
 
-A suíte de 107 testes funciona sem GPU, modelo ou rede. Ela cobre configuração, domínio,
+A suíte de 108 testes Python e 11 testes JavaScript comportamentais funciona sem GPU,
+modelo ou rede. Ela cobre configuração, domínio,
 migrações v1–v4, mídia sintética, pesquisa, exportadores, perfis, ausência de download
 automático, backend injetado, consumo lazy, reivindicação concorrente, leases, recuperação,
 cancelamento, retry, progresso, publicação idempotente, falhas transacionais, recuperação
@@ -382,8 +404,11 @@ HTTP, upload, limites, Host/Origin, fila, SSE, replay, heartbeat, desconexão, R
 exportações, OpenAPI offline, ausência das rotas de documentação HTML, consultas
 incrementais limitadas, backlog em vários lotes, lifespan, shell e assets locais, HTML
 semântico, ausência de sinks inseguros, fluxo web de upload, pesquisa, fila, cancelamento,
-reprodução por Range, exportações e metadados de runtime. Esses testes validam comportamento
-determinístico, não qualidade de inferência.
+reprodução por Range, exportações e metadados de runtime. Promessas e respostas controladas
+cobrem cargas globais fora de ordem, leituras e pesquisas concorrentes, exportação durante
+troca de leitura, erros obsoletos, duplicação e regressão SSE, replay inicial, reconexão,
+listener encerrado e jobs simultâneos. Esses testes validam comportamento determinístico,
+não qualidade de inferência.
 
 As regressões 5C verificam que fila vazia não abre transação imediata, upload concorre com
 polling ocioso sem locks de escritor, um job criado após pré-consulta vazia é encontrado no
@@ -393,8 +418,11 @@ completo com engine falsa e evento terminal sanitizado. Nenhuma inferência real
 
 Uma inspeção real em navegador Chromium percorreu painel, biblioteca vazia e preenchida,
 modelo ausente, confirmação, falha, job em andamento, busca, leitura, exportação, tela
-estreita, foco por teclado e reconexão SSE. Foram usados apenas runtime e conteúdo
-sintéticos temporários; não houve download de modelo nem inferência sobre áudio pessoal.
+estreita, foco por teclado e reconexão SSE. A validação complementar atrasou de forma
+controlada a leitura e a pesquisa A, abriu B logo depois e confirmou que A não reapareceu;
+também interrompeu e reiniciou o servidor local para observar desconexão e reconexão SSE
+sem erro no console. Foram usados apenas runtime e conteúdo sintéticos temporários; não
+houve download de modelo nem inferência sobre áudio pessoal.
 
 ### Execução real
 
@@ -448,4 +476,5 @@ Consulte [estado atual](PROJECT_STATE.md), [decisões](DECISIONS.md),
 [Etapa 5](PHASE_05_LOCAL_API_AND_SSE.md),
 [correção complementar 5B](PHASE_05B_OFFLINE_DOCS_AND_INCREMENTAL_SSE.md) e
 [Etapa 6](PHASE_06_WEB_INTERFACE.md) e
-[correção complementar 5C](PHASE_05C_SQLITE_CONTENTION_RELIABILITY.md).
+[correção complementar 5C](PHASE_05C_SQLITE_CONTENTION_RELIABILITY.md) e
+[correção complementar 6B](PHASE_06B_ASYNC_CONCURRENCY_RELIABILITY.md).

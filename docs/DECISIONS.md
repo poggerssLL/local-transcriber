@@ -296,3 +296,18 @@ revertam escolhas anteriores sem compreender suas consequências.
   polling; dois workers ainda disputam por compare-and-set dentro da transação. Três
   retries transitórios são permitidos; erro permanente ou limite excedido é registrado,
   logado e encerra o controlador, sem loop infinito.
+
+## ADR-032 — Contextos assíncronos e cursores SSE monotônicos no navegador
+
+- Data: 2026-09-11
+- Status: aceita
+- Decisão: associar cargas globais, pesquisas, leituras e exportações a gerações
+  monotônicas, cancelar leituras HTTP substituídas quando possível e validar o contexto
+  após cada espera. Associar ainda cada listener SSE a uma geração e a uma última sequência
+  aceita por job, iniciando o stream no cursor informado pelo snapshot HTTP.
+- Motivo: impedir que latência variável, reconexão ou callbacks tardios façam estado antigo
+  substituir a seleção recente, repitam progresso já representado ou regressem um job.
+- Consequências: respostas e falhas obsoletas são ignoradas; o download permanece ligado ao
+  artefato solicitado, mas só a leitura ativa atualiza controles. O backend expõe
+  `last_event_sequence` e aceita `after_sequence`, preservando `Last-Event-ID`, consultas
+  parametrizadas, compatibilidade e schema v4.

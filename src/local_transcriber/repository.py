@@ -650,6 +650,17 @@ class Repository:
             for row in rows
         ]
 
+    def last_job_event_sequence(self, job_id: str) -> int:
+        """Return the persisted SSE cursor for one job without loading its history."""
+        with self.database.connect() as connection:
+            row = connection.execute(
+                """SELECT COALESCE(MAX(sequence), 0) AS sequence
+                   FROM transcription_job_events
+                   WHERE job_id = ?""",
+                (job_id,),
+            ).fetchone()
+        return int(row["sequence"])
+
     def claimed_job_cancel_requested(
         self,
         job_id: str,

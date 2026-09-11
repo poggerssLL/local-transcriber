@@ -1,6 +1,6 @@
 # Estado atual do projeto
 
-> Fotografia verificada em 2026-09-10 após a correção complementar 5C. Atualize este documento ao fim de cada fase;
+> Fotografia verificada em 2026-09-11 após a correção complementar 6B. Atualize este documento ao fim de cada fase;
 > não reescreva os relatórios históricos de fases concluídas.
 
 O **Local Transcriber** é uma aplicação local para catalogar gravações e persistir o
@@ -10,7 +10,7 @@ API FastAPI restrita ao localhost, interface web local, eventos SSE, exportadore
 persistência de metadados em SQLite; mídias, modelos e demais dados de runtime ficam fora
 do repositório.
 
-- Versão do pacote: `0.6.1`.
+- Versão do pacote: `0.6.2`.
 - Schema SQLite: v4.
 - Etapas concluídas: 1, fundação e persistência; 2, biblioteca de mídia e exportadores;
   3, Faster Whisper, gerenciamento explícito de modelos e CLI; 4, fila persistente;
@@ -24,11 +24,14 @@ do repositório.
   `Last-Event-ID`; interface web sem build e sem dependência de CDN para painel,
   matérias, biblioteca, fila, leitura, exportação e modelos; a especificação OpenAPI JSON
   continua local e não existe visualizador HTML dos contratos; um único entrypoint expõe
-  esses serviços.
+  esses serviços. Gerações monotônicas, cancelamento de requisições e validação explícita
+  do contexto impedem que resultados assíncronos obsoletos substituam a seleção atual.
 - Dependências validadas: PyAV 16.1.0, Faster Whisper 1.2.1, CTranslate2 4.8.2,
   FastAPI 0.116.2, Starlette 0.48.0, Uvicorn 0.52.4 e python-multipart 0.0.32.
-- Última validação registrada nesta fotografia: 107 testes aprovados, incluindo contenção
-  SQLite determinística, além da inicialização HTTP e inspeção visual da Etapa 6.
+- Última validação registrada nesta fotografia: 108 testes Python e 11 testes JavaScript
+  comportamentais aprovados, incluindo contenção SQLite determinística e concorrência
+  assíncrona controlada, além de inspeção real no navegador com respostas atrasadas e
+  reconexão SSE.
 - Commit funcional verificado da Etapa 3: `b28da0480bee08f533a338001284b36e2a6565bc`.
 - Próxima etapa: Etapa 7, integração e validação real abrangente do MVP.
 - `local-transcriber serve` aceita somente `127.0.0.1` e um consumidor de fila por
@@ -36,6 +39,9 @@ do repositório.
   não inicia downloads de modelos.
 - O SSE usa consulta SQLite incremental e parametrizada por job e sequência, limita cada
   lote, drena backlog antes de aguardar e não relê todo o histórico a cada polling.
+- Cada snapshot HTTP de job informa o último evento persistido. O navegador acompanha a
+  última sequência aceita de cada job, inicia o SSE nesse cursor e descarta IDs repetidos,
+  menores, fora de ordem ou pertencentes a listeners encerrados. O schema permanece v4.
 - O worker consulta primeiro, sem lock de escrita, se existe job pendente ou lease vencida.
   Somente então entra em `BEGIN IMMEDIATE` e repete recuperação e seleção antes do
   compare-and-set. Falhas `SQLITE_BUSY` e `SQLITE_LOCKED` na reivindicação recebem retry
@@ -77,4 +83,5 @@ Referências: [contrato](PROJECT_CONTRACT.md), [arquitetura viva](FOUNDATION.md)
 [Etapa 5](PHASE_05_LOCAL_API_AND_SSE.md) e
 [correção complementar 5B](PHASE_05B_OFFLINE_DOCS_AND_INCREMENTAL_SSE.md) e
 [Etapa 6](PHASE_06_WEB_INTERFACE.md) e
-[correção complementar 5C](PHASE_05C_SQLITE_CONTENTION_RELIABILITY.md).
+[correção complementar 5C](PHASE_05C_SQLITE_CONTENTION_RELIABILITY.md) e
+[correção complementar 6B](PHASE_06B_ASYNC_CONCURRENCY_RELIABILITY.md).

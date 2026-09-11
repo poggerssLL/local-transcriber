@@ -152,7 +152,7 @@ def _terminal_job(client: TestClient) -> str:
 def test_health_version_capabilities_and_openapi(client: TestClient) -> None:
     assert client.get("/api/health").json() == {
         "status": "ok",
-        "version": "0.6.1",
+        "version": "0.6.2",
         "schema_version": 4,
     }
     assert client.get("/api/version").json()["api_version"] == "1"
@@ -160,7 +160,7 @@ def test_health_version_capabilities_and_openapi(client: TestClient) -> None:
     assert capabilities["model_download_via_api"] is False
     assert capabilities["sse_replay"] is True
     openapi = client.get("/api/openapi.json").json()
-    assert openapi["info"]["version"] == "0.6.1"
+    assert openapi["info"]["version"] == "0.6.2"
     assert all(path.startswith("/api/") for path in openapi["paths"])
 
 
@@ -503,6 +503,29 @@ def test_sse_initial_replay_last_event_id_and_terminal_close(client: TestClient)
         ).status_code
         == 422
     )
+
+
+def test_job_snapshot_cursor_seeds_sse_without_replaying_older_events(
+    client: TestClient,
+) -> None:
+    recording = _upload(client, _create_subject(client))
+    _install_model(client.app)
+    created = client.post("/api/jobs", json={"recording_id": recording["id"]}).json()
+    assert created["last_event_sequence"] == 1
+    cancelled = client.post(f"/api/jobs/{created['id']}/cancel").json()
+    assert cancelled["last_event_sequence"] == 2
+
+    resumed = client.get(f"/api/jobs/{created['id']}/events?after_sequence=1")
+    assert "id: 1\n" not in resumed.text
+    assert "id: 2\n" in resumed.text
+
+    current = client.get(
+        f"/api/jobs/{created['id']}/events?after_sequence=1",
+        headers={"Last-Event-ID": "2"},
+    )
+    assert "id: 1\n" not in current.text
+    assert "id: 2\n" not in current.text
+    assert client.get(f"/api/jobs/{created['id']}/events?after_sequence=-1").status_code == 422
 
 
 def test_sse_heartbeat_while_waiting(client: TestClient) -> None:

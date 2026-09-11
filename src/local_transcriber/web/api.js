@@ -37,7 +37,10 @@ export class LocalApi {
         headers,
         credentials: "same-origin",
       });
-    } catch (_error) {
+    } catch (error) {
+      if (error && typeof error === "object" && error.name === "AbortError") {
+        throw error;
+      }
       window.dispatchEvent(new Event("local-api-offline"));
       throw new ApiError("Não foi possível acessar o serviço local.");
     }
@@ -51,33 +54,33 @@ export class LocalApi {
     return response.json();
   }
 
-  health() {
-    return this.request("/health");
+  health(options = {}) {
+    return this.request("/health", options);
   }
 
-  capabilities() {
-    return this.request("/capabilities");
+  capabilities(options = {}) {
+    return this.request("/capabilities", options);
   }
 
-  runtime() {
-    return this.request("/runtime");
+  runtime(options = {}) {
+    return this.request("/runtime", options);
   }
 
-  models() {
-    return this.request("/models");
+  models(options = {}) {
+    return this.request("/models", options);
   }
 
-  subjects() {
-    return this.request("/subjects");
+  subjects(options = {}) {
+    return this.request("/subjects", options);
   }
 
   createSubject(name) {
     return this.request("/subjects", { method: "POST", body: JSON.stringify({ name }) });
   }
 
-  recordings(subjectId = "") {
+  recordings(subjectId = "", options = {}) {
     const query = subjectId ? `?subject_id=${encodeURIComponent(subjectId)}` : "";
-    return this.request(`/recordings${query}`);
+    return this.request(`/recordings${query}`, options);
   }
 
   uploadRecording(formData) {
@@ -88,16 +91,16 @@ export class LocalApi {
     return this.request(`/recordings/${encodeURIComponent(recordingId)}`, { method: "DELETE" });
   }
 
-  search(query) {
-    return this.request(`/search?q=${encodeURIComponent(query)}`);
+  search(query, options = {}) {
+    return this.request(`/search?q=${encodeURIComponent(query)}`, options);
   }
 
-  jobs() {
-    return this.request("/jobs");
+  jobs(options = {}) {
+    return this.request("/jobs", options);
   }
 
-  job(jobId) {
-    return this.request(`/jobs/${encodeURIComponent(jobId)}`);
+  job(jobId, options = {}) {
+    return this.request(`/jobs/${encodeURIComponent(jobId)}`, options);
   }
 
   createJob(payload) {
@@ -112,17 +115,17 @@ export class LocalApi {
     return this.request(`/jobs/${encodeURIComponent(jobId)}/retry`, { method: "POST" });
   }
 
-  transcripts(recordingId = "") {
+  transcripts(recordingId = "", options = {}) {
     const query = recordingId ? `?recording_id=${encodeURIComponent(recordingId)}` : "";
-    return this.request(`/transcripts${query}`);
+    return this.request(`/transcripts${query}`, options);
   }
 
-  transcript(transcriptId) {
-    return this.request(`/transcripts/${encodeURIComponent(transcriptId)}`);
+  transcript(transcriptId, options = {}) {
+    return this.request(`/transcripts/${encodeURIComponent(transcriptId)}`, options);
   }
 
-  exports(transcriptId) {
-    return this.request(`/transcripts/${encodeURIComponent(transcriptId)}/exports`);
+  exports(transcriptId, options = {}) {
+    return this.request(`/transcripts/${encodeURIComponent(transcriptId)}/exports`, options);
   }
 
   createExport(transcriptId, format) {
@@ -132,11 +135,18 @@ export class LocalApi {
     });
   }
 
-  eventStream(jobId, handlers) {
-    const source = new EventSource(`${API_ROOT}/jobs/${encodeURIComponent(jobId)}/events`);
+  eventStream(jobId, handlers, { afterSequence = 0 } = {}) {
+    const cursor = Number.isSafeInteger(afterSequence) && afterSequence >= 0 ? afterSequence : 0;
+    const source = new EventSource(
+      `${API_ROOT}/jobs/${encodeURIComponent(jobId)}/events?after_sequence=${cursor}`,
+    );
+    let active = true;
     const eventNames = ["state", "phase", "progress", "failure", "cancellation", "completion"];
     for (const eventName of eventNames) {
       source.addEventListener(eventName, (event) => {
+        if (!active) {
+          return;
+        }
         try {
           handlers.message(JSON.parse(event.data), event.lastEventId);
         } catch (_error) {
@@ -144,8 +154,19 @@ export class LocalApi {
         }
       });
     }
-    source.onopen = () => handlers.open?.();
-    source.onerror = () => handlers.error?.();
-    return () => source.close();
+    source.onopen = () => {
+      if (active) {
+        handlers.open?.();
+      }
+    };
+    source.onerror = () => {
+      if (active) {
+        handlers.error?.();
+      }
+    };
+    return () => {
+      active = false;
+      source.close();
+    };
   }
 }

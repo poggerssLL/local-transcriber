@@ -1,4 +1,5 @@
 import { ApiError, LocalApi } from "/assets/api.js";
+import { JobEventTracker, LatestRequest, isAbortError } from "/assets/async_state.js";
 import {
   byId,
   clear,
@@ -38,9 +39,16 @@ const state = {
   pendingJob: null,
   pendingDelete: null,
   selectedRecording: null,
+  readerContext: null,
   activeStreams: new Map(),
   streamStates: new Map(),
 };
+
+const loadRequest = new LatestRequest();
+const searchRequest = new LatestRequest();
+const readerRequest = new LatestRequest();
+const exportRequests = new Map();
+const jobEvents = new JobEventTracker();
 
 function announce(message) {
   byId("global-live").textContent = message;
@@ -179,6 +187,7 @@ function renderSubjects() {
     ]);
     const filter = element("button", { className: "button button-quiet", text: "Ver aulas", type: "button" });
     filter.addEventListener("click", () => {
+      searchRequest.invalidate();
       byId("subject-filter").value = subject.id;
       state.searchResults = null;
       byId("search-query").value = "";
@@ -450,28 +459,58 @@ function renderAll() {
   renderDashboard();
 }
 
+function jobSequence(job) {
+  return Number.isSafeInteger(job.last_event_sequence) && job.last_event_sequence >= 0
+    ? job.last_event_sequence
+    : 0;
+}
+
 function replaceJob(job) {
   const index = state.jobs.findIndex((item) => item.id === job.id);
+  const knownSequence = jobEvents.lastSequence(job.id);
+  if (index !== -1 && jobSequence(job) < knownSequence) {
+    return false;
+  }
+  jobEvents.seed(job.id, jobSequence(job));
   if (index === -1) {
     state.jobs.unshift(job);
   } else {
     state.jobs[index] = job;
   }
   state.jobs.sort((left, right) => right.created_at.localeCompare(left.created_at));
+  return true;
+}
+
+function replaceJobSnapshot(jobs) {
+  const previous = new Map(state.jobs.map((job) => [job.id, job]));
+  state.jobs = jobs.map((job) => {
+    const existing = previous.get(job.id);
+    if (existing && jobSequence(job) < jobEvents.lastSequence(job.id)) {
+      return existing;
+    }
+    jobEvents.seed(job.id, jobSequence(job));
+    return job;
+  });
+  state.jobs.sort((left, right) => right.created_at.localeCompare(left.created_at));
+  jobEvents.retain(new Set(state.jobs.map((job) => job.id)));
 }
 
 async function loadAll() {
+  const request = loadRequest.begin("global");
   setServiceLoading();
   const tasks = await Promise.allSettled([
-    api.health(),
-    api.capabilities(),
-    api.runtime(),
-    api.models(),
-    api.subjects(),
-    api.recordings(),
-    api.jobs(),
-    api.transcripts(),
+    api.health({ signal: request.signal }),
+    api.capabilities({ signal: request.signal }),
+    api.runtime({ signal: request.signal }),
+    api.models({ signal: request.signal }),
+    api.subjects({ signal: request.signal }),
+    api.recordings("", { signal: request.signal }),
+    api.jobs({ signal: request.signal }),
+    api.transcripts("", { signal: request.signal }),
   ]);
+  if (!loadRequest.isCurrent(request, "global")) {
+    return;
+  }
   const [health, capabilities, runtime, models, subjects, recordings, jobs, transcripts] = tasks;
   if (health.status === "rejected") {
     setServiceState(false);
@@ -484,7 +523,7 @@ async function loadAll() {
   state.models = models.status === "fulfilled" ? models.value : [];
   state.subjects = subjects.status === "fulfilled" ? subjects.value : [];
   state.recordings = recordings.status === "fulfilled" ? recordings.value : [];
-  state.jobs = jobs.status === "fulfilled" ? jobs.value : [];
+  replaceJobSnapshot(jobs.status === "fulfilled" ? jobs.value : []);
   state.transcripts = transcripts.status === "fulfilled" ? transcripts.value : [];
   const failures = tasks.slice(1).filter((task) => task.status === "rejected").length;
   setServiceState(true);
@@ -496,39 +535,64 @@ async function loadAll() {
 }
 
 function connectActiveJobs() {
+  const knownIds = new Set(state.jobs.map((job) => job.id));
+  for (const job of state.jobs) {
+    jobEvents.seed(job.id, jobSequence(job));
+  }
   const activeIds = new Set(
     state.jobs.filter((job) => ["pending", "running"].includes(job.status)).map((job) => job.id),
   );
-  for (const [jobId, close] of state.activeStreams.entries()) {
+  for (const [jobId, stream] of state.activeStreams.entries()) {
     if (!activeIds.has(jobId)) {
-      close();
+      stream.close();
+      jobEvents.stop(stream.token, { clear: !knownIds.has(jobId) });
       state.activeStreams.delete(jobId);
       state.streamStates.delete(jobId);
     }
   }
+  jobEvents.retain(knownIds);
   for (const jobId of activeIds) {
     if (state.activeStreams.has(jobId)) {
       continue;
     }
+    const job = state.jobs.find((item) => item.id === jobId);
+    const token = jobEvents.begin(jobId, jobSequence(job));
     state.streamStates.set(jobId, "connecting");
     const close = api.eventStream(jobId, {
       open: () => {
+        if (!jobEvents.isCurrent(token)) {
+          return;
+        }
         state.streamStates.set(jobId, "connected");
         renderStreamState();
       },
       error: () => {
+        if (!jobEvents.isCurrent(token)) {
+          return;
+        }
         state.streamStates.set(jobId, "reconnecting");
         renderStreamState();
       },
-      invalid: () => toast("Um evento de progresso inválido foi ignorado.", "error"),
-      message: (event) => updateJobFromEvent(jobId, event),
-    });
-    state.activeStreams.set(jobId, close);
+      invalid: () => {
+        if (jobEvents.isCurrent(token)) {
+          toast("Um evento de progresso inválido foi ignorado.", "error");
+        }
+      },
+      message: (event, eventId) => {
+        if (jobEvents.accept(token, eventId, event.sequence)) {
+          updateJobFromEvent(jobId, event, token);
+        }
+      },
+    }, { afterSequence: jobEvents.cursor(token) });
+    state.activeStreams.set(jobId, { close, token });
   }
   renderStreamState();
 }
 
-async function updateJobFromEvent(jobId, event) {
+async function updateJobFromEvent(jobId, event, token) {
+  if (!jobEvents.isCurrent(token)) {
+    return;
+  }
   const current = state.jobs.find((job) => job.id === jobId);
   if (!current) {
     return;
@@ -541,6 +605,7 @@ async function updateJobFromEvent(jobId, event) {
     processed_seconds: event.processed_seconds ?? current.processed_seconds,
     total_seconds: event.total_seconds ?? current.total_seconds,
     updated_at: event.created_at || current.updated_at,
+    last_event_sequence: event.sequence,
   });
   renderJobs();
   renderDashboard();
@@ -548,13 +613,27 @@ async function updateJobFromEvent(jobId, event) {
   announce(`${recordingFor(current.recording_id)?.title || "Transcrição"}: ${phaseLabel(event.phase)}, ${formatPercent(event.percent)}.`);
   if (["succeeded", "failed", "cancelled"].includes(event.status)) {
     try {
-      replaceJob(await api.job(jobId));
-      state.transcripts = await api.transcripts();
+      const job = await api.job(jobId);
+      if (!jobEvents.isCurrent(token)) {
+        return;
+      }
+      replaceJob(job);
+      const transcripts = await api.transcripts();
+      if (!jobEvents.isCurrent(token)) {
+        return;
+      }
+      state.transcripts = transcripts;
     } catch (error) {
-      toast(errorMessage(error), "error");
+      if (jobEvents.isCurrent(token) && !isAbortError(error)) {
+        toast(errorMessage(error), "error");
+      }
     }
-    const close = state.activeStreams.get(jobId);
-    close?.();
+    if (!jobEvents.isCurrent(token)) {
+      return;
+    }
+    const stream = state.activeStreams.get(jobId);
+    stream?.close();
+    jobEvents.stop(token);
     state.activeStreams.delete(jobId);
     state.streamStates.delete(jobId);
     renderAll();
@@ -566,6 +645,7 @@ async function cancelJob(jobId) {
   try {
     replaceJob(await api.cancelJob(jobId));
     renderAll();
+    connectActiveJobs();
     announce("Cancelamento solicitado.");
   } catch (error) {
     toast(errorMessage(error), "error");
@@ -647,16 +727,37 @@ async function openReader(recordingId) {
     toast("Gravação não encontrada.", "error");
     return;
   }
+  const request = readerRequest.begin(recordingId);
+  state.readerContext = null;
   try {
-    const transcripts = await api.transcripts(recordingId);
+    const transcripts = await api.transcripts(recordingId, { signal: request.signal });
+    if (!readerRequest.isCurrent(request, recordingId)) {
+      return;
+    }
     if (transcripts.length === 0) {
       throw new ApiError("Esta gravação ainda não possui transcrição concluída.");
     }
-    state.selectedRecording = recording;
-    renderReader(recording, transcripts[0], await api.exports(transcripts[0].id));
+    const transcript = transcripts[0];
+    const artifacts = await api.exports(transcript.id, { signal: request.signal });
+    if (!readerRequest.isCurrent(request, recordingId)) {
+      return;
+    }
+    const currentRecording = recordingFor(recordingId);
+    if (!currentRecording) {
+      throw new ApiError("Gravação não encontrada.");
+    }
+    state.readerContext = {
+      generation: request.generation,
+      recordingId,
+      transcriptId: transcript.id,
+    };
+    state.selectedRecording = currentRecording;
+    renderReader(currentRecording, transcript, artifacts);
     showView("leitura", true);
   } catch (error) {
-    toast(errorMessage(error), "error");
+    if (readerRequest.isCurrent(request, recordingId) && !isAbortError(error)) {
+      toast(errorMessage(error), "error");
+    }
   }
 }
 
@@ -754,23 +855,63 @@ function renderExports(transcriptId, artifacts) {
 }
 
 async function createExport(transcriptId, format, button) {
+  const readerContext = state.readerContext;
+  if (!readerContext || readerContext.transcriptId !== transcriptId) {
+    return;
+  }
+  const key = `${transcriptId}:${format}`;
+  const scope = exportRequests.get(key) || new LatestRequest();
+  exportRequests.set(key, scope);
+  const request = scope.begin(key, { abortable: false });
   button.disabled = true;
   try {
     const artifact = await api.createExport(transcriptId, format);
-    const artifacts = await api.exports(transcriptId);
-    renderExports(transcriptId, artifacts);
-    toast(`${exportLabels[format]} gerado. O download será iniciado.`);
+    if (!scope.isCurrent(request, key)) {
+      return;
+    }
+    if (artifact.transcript_id !== transcriptId || artifact.kind !== format) {
+      throw new ApiError("A exportação retornada não corresponde ao artefato solicitado.");
+    }
     const download = element("a", {
       href: `/api/exports/${encodeURIComponent(artifact.id)}`,
-      attributes: { download: `transcricao.${format}` },
+      attributes: { download: `transcricao.${artifact.kind}` },
     });
     document.body.append(download);
     download.click();
     download.remove();
+    if (!isReaderContextCurrent(readerContext)) {
+      return;
+    }
+    const artifacts = await api.exports(transcriptId);
+    if (!scope.isCurrent(request, key) || !isReaderContextCurrent(readerContext)) {
+      return;
+    }
+    renderExports(transcriptId, artifacts);
+    toast(`${exportLabels[format]} gerado. O download foi iniciado.`);
   } catch (error) {
-    toast(errorMessage(error), "error");
-    button.disabled = false;
+    if (
+      scope.isCurrent(request, key) &&
+      isReaderContextCurrent(readerContext) &&
+      !isAbortError(error)
+    ) {
+      toast(errorMessage(error), "error");
+    }
+  } finally {
+    if (scope.isCurrent(request, key)) {
+      exportRequests.delete(key);
+      if (isReaderContextCurrent(readerContext) && button.isConnected) {
+        button.disabled = false;
+      }
+    }
   }
+}
+
+function isReaderContextCurrent(context) {
+  return (
+    state.readerContext === context &&
+    readerRequest.generation === context.generation &&
+    state.selectedRecording?.id === context.recordingId
+  );
 }
 
 function wireStaticEvents() {
@@ -880,19 +1021,31 @@ function wireStaticEvents() {
     event.preventDefault();
     const query = byId("search-query").value.trim();
     if (!query) {
+      searchRequest.invalidate();
       state.searchResults = null;
       renderRecordings();
       return;
     }
+    const request = searchRequest.begin(query);
     try {
-      state.searchResults = await api.search(query);
+      const results = await api.search(query, { signal: request.signal });
+      if (
+        !searchRequest.isCurrent(request, query) ||
+        byId("search-query").value.trim() !== query
+      ) {
+        return;
+      }
+      state.searchResults = results;
       renderRecordings();
     } catch (error) {
-      toast(errorMessage(error), "error");
+      if (searchRequest.isCurrent(request, query) && !isAbortError(error)) {
+        toast(errorMessage(error), "error");
+      }
     }
   });
   byId("search-query").addEventListener("search", () => {
     if (!byId("search-query").value) {
+      searchRequest.invalidate();
       state.searchResults = null;
       renderRecordings();
     }

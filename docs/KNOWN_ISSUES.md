@@ -178,6 +178,8 @@ só, uma tarefa autorizada; qualquer mudança continua dependente do escopo soli
 - Impacto: existe pequena latência entre persistência e entrega do evento.
 - Situação atual: as consultas filtram job e sequência, usam lote limitado e não relêem o
   histórico; nenhuma transação permanece aberta durante a espera e heartbeat mantém a
-  conexão observável sem polling agressivo.
+  conexão observável sem polling agressivo. O navegador inicia no cursor do snapshot,
+  acompanha cada job separadamente e rejeita eventos duplicados, regressivos, fora de ordem
+  ou oriundos de listeners encerrados.
 - Possível direção futura: ajustar o intervalo após medições reais, preservando replay.
 - Fase provável: Etapa 7, integração e validação real.
