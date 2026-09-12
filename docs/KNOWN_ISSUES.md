@@ -9,7 +9,7 @@ só, uma tarefa autorizada; qualquer mudança continua dependente do escopo soli
 - Impacto: uma mídia pode não ser decodificável na distribuição instalada.
 - Situação atual: a importação rejeita conteúdo que não consegue validar e decodificar.
 - Possível direção futura: validar a matriz real de formatos e codecs suportados.
-- Fase provável: Etapa 7, integração e validação real.
+- Fase provável: validação futura autorizada.
 
 ## Duplicidade somente por bytes
 
@@ -51,17 +51,18 @@ só, uma tarefa autorizada; qualquer mudança continua dependente do escopo soli
 - Possível direção futura: definir política segura de substituição ou versionamento.
 - Fase provável: não definida no roadmap atual.
 
-## Validação real ainda parcial
+## Caracterização real ainda parcial
 
-- Descrição: duas validações reais confirmaram o modelo `small` em CPU `int8`, mas usaram
+- Descrição: três validações reais confirmaram o modelo `small` em CPU `int8`, mas usaram
   apenas gravações curtas em português e não possuíam gabarito textual independente.
 - Impacto: o fluxo real está comprovado, porém qualidade, precisão, desempenho em cargas
   maiores e variedade de mídia ainda não foram caracterizados.
-- Situação atual: job, segmentos, palavras, métricas, exportações e persistência foram
-  verificados. Os RTFs observados foram 1,612 e 0,4778; essa variação e duas amostras
-  curtas não caracterizam cargas longas. Nenhuma taxa de precisão foi calculada.
+- Situação atual: a Etapa 7 verificou upload, job HTTP, worker, SSE, busca, leitura, Range,
+  segmentos, palavras, métricas, cinco exportações e persistência. Os RTFs observados foram
+  1,612, 0,4778 e aproximadamente 0,816; essa variação e amostras curtas não caracterizam
+  cargas longas. Nenhuma taxa de precisão foi calculada.
 - Possível direção futura: executar uma matriz sanitizada de formatos, durações e gabaritos.
-- Fase provável: Etapa 7, integração e validação real.
+- Fase provável: validação futura autorizada.
 
 ## Vocabulário técnico específico
 
@@ -83,7 +84,7 @@ só, uma tarefa autorizada; qualquer mudança continua dependente do escopo soli
 - Situação atual: nenhum runtime ou DLL NVIDIA foi instalado pela aplicação.
 - Possível direção futura: instalar CUDA 12/cuBLAS 12/cuDNN 9 por canais oficiais e repetir
   `local-transcriber config check` antes do teste opt-in.
-- Fase provável: Etapa 7, integração e validação real.
+- Fase provável: validação futura autorizada.
 
 ## Recuperação reinicia a inferência
 
@@ -104,7 +105,7 @@ só, uma tarefa autorizada; qualquer mudança continua dependente do escopo soli
   falha ou publicar. O worker obsoleto abandona a tentativa ao observar o sinal ou a
   validação transacional; nunca há duas publicações finais para o mesmo job.
 - Possível direção futura: medir a latência até os pontos cooperativos com inferência real.
-- Fase provável: Etapa 7, integração e validação real.
+- Fase provável: validação futura autorizada.
 
 ## Cancelamento não instantâneo
 
@@ -113,17 +114,22 @@ só, uma tarefa autorizada; qualquer mudança continua dependente do escopo soli
 - Situação atual: a solicitação é persistida imediatamente e impede publicação posterior;
   jobs pendentes são cancelados sem iniciar inferência.
 - Possível direção futura: medir latência e pontos de cooperação com inferência real.
-- Fase provável: Etapa 7, integração e validação real.
+- Fase provável: validação futura autorizada.
 
-## Fila ainda não validada com inferência real
+## Recuperação operacional real ainda parcial
 
-- Descrição: fila, leases, progresso, cancelamento e recuperação usam engines falsos nos testes.
-- Impacto: custos e latências sob Faster Whisper real ainda não foram caracterizados.
-- Situação atual: áudio simulado de duas horas prova ausência de timeout artificial, mas não
-  representa uma execução longa real. A contenção do polling ocioso foi corrigida e testada
-  deterministicamente sem inferência.
-- Possível direção futura: executar cenários sanitizados de carga e interrupção reais.
-- Fase provável: Etapa 7, integração e validação real.
+- Descrição: a fila concluiu job real pelo worker integrado e recuperou um job após reinício
+  do computador, mas lease expirada, cancelamento e retry não foram executados de modo
+  controlado com inferência real nesta amostra curta.
+- Impacto: custos e latências desses cenários sob Faster Whisper real ainda não foram
+  caracterizados.
+- Situação atual: áudio simulado de duas horas prova ausência de timeout artificial, e os
+  cenários de lease, cancelamento e retry usam engines falsos determinísticos. A Etapa 7
+  observou recuperação real após reinício, mas evitou duplicar a inferência e a transcrição
+  da amostra apenas para provocar esses estados.
+- Possível direção futura: executar cenários sanitizados de carga e interrupção reais com
+  consentimento operacional específico.
+- Fase provável: validação futura autorizada.
 
 ## Visualizador OpenAPI offline ausente
 
@@ -142,11 +148,12 @@ só, uma tarefa autorizada; qualquer mudança continua dependente do escopo soli
   player HTML usa os codecs oferecidos pelo navegador instalado.
 - Impacto: uma gravação válida para transcrição pode não ser reproduzível diretamente no
   navegador, embora continue disponível para processamento e exportação.
-- Situação atual: o endpoint de mídia suporta Range e o player apresenta erro legível sem
-  expor caminhos físicos; a aplicação não converte nem normaliza a mídia.
+- Situação atual: o endpoint de mídia suportou Range na validação real e o player local
+  carregou controles e marcadores temporais, sem expor caminhos físicos; a aplicação não
+  converte nem normaliza a mídia.
 - Possível direção futura: validar uma matriz sanitizada de codecs no ambiente-alvo e
   avaliar conversão somente em escopo próprio.
-- Fase provável: Etapa 7, integração e validação real.
+- Fase provável: validação futura autorizada.
 
 ## Seleção de leitura não persiste após recarga
 
@@ -168,7 +175,7 @@ só, uma tarefa autorizada; qualquer mudança continua dependente do escopo soli
 - Situação atual: a política evita abandonar uma thread de inferência ou cancelar um job
   apenas porque o servidor recebeu shutdown.
 - Possível direção futura: medir a latência real e avaliar pontos adicionais de cooperação.
-- Fase provável: Etapa 7, integração e validação real.
+- Fase provável: validação futura autorizada.
 
 ## SSE usa consulta periódica conservadora
 
@@ -180,6 +187,7 @@ só, uma tarefa autorizada; qualquer mudança continua dependente do escopo soli
   histórico; nenhuma transação permanece aberta durante a espera e heartbeat mantém a
   conexão observável sem polling agressivo. O navegador inicia no cursor do snapshot,
   acompanha cada job separadamente e rejeita eventos duplicados, regressivos, fora de ordem
-  ou oriundos de listeners encerrados.
+  ou oriundos de listeners encerrados. A Etapa 7 também confirmou replay do evento terminal
+  persistido a partir de `Last-Event-ID`.
 - Possível direção futura: ajustar o intervalo após medições reais, preservando replay.
-- Fase provável: Etapa 7, integração e validação real.
+- Fase provável: validação futura autorizada.

@@ -5,7 +5,7 @@ A versão atual inclui importação segura e inspeção de mídia, pesquisa SQLi
 transcrição local síncrona, fila persistente com worker local, API FastAPI restrita ao
 localhost, interface web local, eventos SSE e exportadores TXT, Markdown, SRT, WebVTT e JSON.
 
-Versão atual: `0.6.2`, com schema SQLite v4.
+Versão atual: `0.7.0`, com schema SQLite v4.
 
 ## Requisitos e instalação
 
@@ -151,6 +151,74 @@ internet. Ela permite:
 - ler texto e métricas e baixar TXT, Markdown, SRT, WebVTT e JSON;
 - verificar modelos instalados e copiar a orientação explícita da CLI quando faltarem.
 
+## Guia de utilização
+
+### 1. Abrir o servidor local
+
+Abra o PowerShell, entre na pasta onde o projeto foi instalado e execute:
+
+```powershell
+cd "C:\caminho\para\Local Transcriber"
+.\scripts\start-local-transcriber.ps1
+```
+
+O script verifica a presença de `.venv`, confirma que a porta está livre e inicia servidor
+e worker local somente em `127.0.0.1:8765`, com um único consumidor da fila. Mantenha essa
+janela aberta enquanto usa a ferramenta. Se preferir iniciar diretamente, execute
+`.\.venv\Scripts\local-transcriber serve` no mesmo diretório.
+
+Abra então `http://127.0.0.1:8765` no navegador. Nenhuma conexão com a internet é
+necessária para usar a interface, e ela não expõe o servidor à rede local.
+
+Se a porta padrão estiver ocupada, escolha outra porta local, por exemplo:
+
+```powershell
+.\scripts\start-local-transcriber.ps1 -Port 8766
+```
+
+Nesse caso, abra `http://127.0.0.1:8766` no navegador. O comando recusa hosts públicos e
+mais de um worker para proteger a fila SQLite.
+
+### 2. Organizar e importar uma aula
+
+1. Abra **Matérias** e crie a matéria que receberá a gravação.
+2. Abra **Biblioteca**, escolha o arquivo de áudio ou vídeo, informe título, matéria e data.
+3. Selecione **Importar arquivo** e aguarde a confirmação. A mídia é copiada para o runtime
+   local e validada antes de entrar na biblioteca.
+4. Use a busca e o filtro por matéria para localizar a gravação depois.
+
+### 3. Preparar e acompanhar a transcrição
+
+1. Na biblioteca, escolha **Transcrever** para a gravação desejada.
+2. Revise modelo, idioma, perfil, beam size, VAD e timestamps antes de confirmar.
+3. Se o modelo estiver ausente, a interface mostra o comando necessário; ela nunca faz o
+   download sozinha. Para instalar explicitamente um modelo, use:
+
+   ```powershell
+   .\.venv\Scripts\local-transcriber models download small --confirm
+   ```
+
+4. Após confirmar, a transcrição entra na fila. Abra **Fila** para acompanhar fase,
+   percentual e tempo processado. É possível cancelar ou repetir um job, e o progresso é
+   recuperado após recarregar a página.
+
+### 4. Ler, reproduzir e exportar
+
+Quando o job estiver concluído, selecione **Ler transcrição**. A tela de leitura permite:
+
+- reproduzir a mídia e avançar para um segmento clicando no timestamp;
+- consultar texto, idioma, métricas, segmentos e probabilidades disponíveis;
+- gerar e baixar TXT, Markdown, SRT, WebVTT ou JSON.
+
+O suporte de reprodução depende dos codecs disponíveis no navegador; a transcrição e as
+exportações continuam disponíveis mesmo que um formato específico não seja reproduzível.
+
+### 5. Encerrar
+
+Volte à janela do PowerShell que executa o servidor e pressione `Ctrl+C`. O encerramento
+interrompe novas reivindicações de jobs e aguarda com segurança a operação local já em
+andamento. Dados, fila e progresso persistidos permanecem no runtime para a próxima abertura.
+
 Cargas, pesquisas e leituras usam gerações monotônicas e cancelamento HTTP quando
 disponível, por isso uma resposta antiga não substitui a seleção mais recente. Cada job
 mantém seu próprio cursor SSE; eventos duplicados, regressivos, fora de ordem e callbacks
@@ -179,11 +247,12 @@ No Windows, o runtime atual do Faster Whisper/CTranslate2 exige CUDA 12, cuBLAS 
 cuDNN 9. A presença de uma GPU ou de seu driver não basta. Use `config check` para o
 diagnóstico local. Nenhum binário NVIDIA é obtido pela aplicação.
 
-Duas validações reais posteriores à Etapa 3 confirmaram o modelo `small` multilíngue em
-CPU `int8`, com português, VAD, timestamps por palavra, métricas, cinco exportações e
-persistência entre processos. Os RTFs observados foram 1,612 e 0,4778. Essas evidências
-continuam limitadas a duas gravações curtas sem gabarito textual independente; desempenho
-em cargas longas, CUDA e a validação ampla permanecem pendentes para a Etapa 7.
+Três validações reais confirmaram o modelo `small` multilíngue em CPU `int8`, com idioma
+detectado, VAD, timestamps por palavra, métricas, cinco exportações e persistência. A Etapa
+7 percorreu uma amostra curta controlada pela interface e API locais, worker, SSE, busca e
+streaming por Range. Os RTFs observados foram 1,612, 0,4778 e aproximadamente 0,816. Essas
+evidências continuam limitadas a gravações curtas sem gabarito textual independente;
+desempenho em cargas longas e CUDA permanecem limitações conhecidas.
 
 ## Contexto para contribuidores
 
@@ -212,3 +281,5 @@ em cargas longas, CUDA e a validação ampla permanecem pendentes para a Etapa 7
   de contenção no polling ocioso e retry limitado da reivindicação.
 - [Confiabilidade assíncrona 6B](docs/PHASE_06B_ASYNC_CONCURRENCY_RELIABILITY.md):
   gerações de requisição, contexto de exportação e ordenação SSE por job.
+- [Integração e validação real 7](docs/PHASE_07_MVP_INTEGRATION_AND_REAL_VALIDATION.md):
+  evidência ponta a ponta local, limites da amostra e iniciador supervisionado.

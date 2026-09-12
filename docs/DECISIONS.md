@@ -311,3 +311,16 @@ revertam escolhas anteriores sem compreender suas consequências.
   artefato solicitado, mas só a leitura ativa atualiza controles. O backend expõe
   `last_event_sequence` e aceita `after_sequence`, preservando `Last-Event-ID`, consultas
   parametrizadas, compatibilidade e schema v4.
+
+## ADR-033 — Iniciador supervisionado somente para loopback
+
+- Data: 2026-09-11
+- Status: aceita
+- Decisão: fornecer `scripts/start-local-transcriber.ps1` como atalho opcional para o
+  entrypoint já instalado, em primeiro plano, fixando `127.0.0.1` e um worker, após checar
+  `.venv` e a porta local.
+- Motivo: reduzir erros de uso cotidiano sem esconder o processo, abrir bind público,
+  instalar dependências ou iniciar downloads.
+- Consequências: `Ctrl+C` permanece o caminho de encerramento supervisionado; uma porta
+  ocupada produz orientação clara para escolher outra. O script não muda políticas globais
+  do PowerShell, não move o runtime e não substitui a CLI.

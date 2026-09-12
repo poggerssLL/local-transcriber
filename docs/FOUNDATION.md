@@ -7,17 +7,18 @@
 
 O **Local Transcriber** é uma aplicação local para catalogar gravações, executar
 transcrição com Faster Whisper e exportar resultados estruturados sem depender de APIs
-de IA em nuvem. A versão atual é `0.6.2`, usa schema SQLite v4 e concluiu:
+de IA em nuvem. A versão atual é `0.7.0`, usa schema SQLite v4 e concluiu:
 
 1. fundação e persistência;
 2. biblioteca de mídia, pesquisa e exportadores;
 3. Faster Whisper, modelos explícitos e CLI;
 4. fila persistente e worker local;
 5. API FastAPI local e eventos SSE persistentes;
-6. interface web local em HTML, CSS e JavaScript.
+6. interface web local em HTML, CSS e JavaScript;
+7. integração e validação real do MVP.
 
-A próxima etapa planejada é a integração e validação real abrangente do MVP. Diarização,
-Ollama, microfone ao vivo e Home Assistant ainda não foram implementados.
+A futura Etapa 8 não foi iniciada. Diarização, Ollama, microfone ao vivo e Home Assistant
+ainda não foram implementados.
 
 ## Estrutura do repositório
 
@@ -26,6 +27,8 @@ Local Transcriber/
 ├── AGENTS.md
 ├── README.md
 ├── pyproject.toml
+├── scripts/
+│   └── start-local-transcriber.ps1
 ├── docs/
 │   ├── FOUNDATION.md
 │   ├── PROJECT_CONTRACT.md
@@ -76,6 +79,8 @@ O pacote usa layout `src/`, Python 3.11 ou superior e um único entrypoint insta
 - `api.py`: define os contratos `/api`, segurança HTTP, streaming, SSE e lifespan.
 - `web/`: implementa a interface sem build, com assets locais e consumo seguro da API.
 - `cli.py`: expõe os serviços existentes sem duplicar regras de negócio.
+- `scripts/start-local-transcriber.ps1`: inicia o entrypoint instalado em primeiro plano,
+  após verificar `.venv` e a disponibilidade da porta local solicitada.
 
 ## Configuração e RuntimePaths
 
@@ -278,6 +283,12 @@ comando recusa outro host e quantidade de workers diferente de 1. Um lock mantid
 runtime também impede que dois processos HTTP consumam a mesma fila, inclusive se forem
 iniciados fora do comando recomendado.
 
+Para o uso cotidiano no Windows, `scripts/start-local-transcriber.ps1` chama o mesmo
+comando instalado com host `127.0.0.1` e `--workers 1`, mas primeiro verifica a existência
+do ambiente virtual e se a porta está em escuta. Ele não instala dependências, não baixa
+modelos e não inicia o navegador ou outro processo em segundo plano. O operador encerra o
+processo supervisionado com `Ctrl+C`.
+
 Os contratos ficam sob `/api` e incluem saúde, versão, capacidades, matérias, gravações,
 pesquisa FTS5, modelos instalados, runtime, jobs, transcrições, segmentos, palavras,
 exportações, mídia e eventos. A especificação OpenAPI JSON local fica em
@@ -426,22 +437,29 @@ houve download de modelo nem inferência sobre áudio pessoal.
 
 ### Execução real
 
-As validações 3B e 3C executaram duas gravações curtas em português com o modelo `small`
-multilíngue, CPU `int8`, VAD e timestamps por palavra. Em ambas, o job concluiu, gerou
-segmentos e palavras, persistiu métricas, produziu os cinco formatos e foi recuperado em
-novos processos. A primeira execução registrou RTF 1,612. A segunda registrou RTF 0,4778,
-aproximadamente 2,09 vezes mais rápida que tempo real, com pico aproximado de working set
-de 709,9 MiB. Caches, aquecimento, conteúdo e duração podem influenciar essa diferença.
+As validações 3B, 3C e 7 executaram três gravações curtas em português com o modelo `small`
+multilíngue, CPU `int8`, VAD e timestamps por palavra. A Etapa 7 também percorreu upload
+local, fila HTTP, worker integrado, eventos SSE, busca FTS5, leitura web, mídia por Range e
+os cinco formatos de exportação. A primeira execução registrou RTF 1,612. A segunda
+registrou RTF 0,4778, aproximadamente 2,09 vezes mais rápida que tempo real, com pico
+aproximado de working set de 709,9 MiB. A terceira registrou RTF aproximado de 0,816 em
+18,23 segundos de mídia e 14,88 segundos de processamento persistido. Caches, aquecimento,
+conteúdo e duração podem influenciar essas diferenças.
 
 Na segunda execução, a estrutura temporal e os números principais foram validados, mas
 houve erros em vocabulário técnico específico. Nenhuma das amostras possuía gabarito
 textual independente, portanto nenhuma taxa de precisão foi calculada. Nenhum defeito de
 implementação foi identificado.
 
-Essa evidência não conclui a Etapa 7: duas amostras curtas não garantem desempenho em uma
-gravação de 1h40. O RTF 0,4778 projetaria aproximadamente 47,8 minutos para essa duração,
-mas não constitui medição real de carga longa. Ainda faltam validação ampla de formatos,
-qualidade, desempenho, recuperação operacional e CUDA em configuração compatível.
+A Etapa 7 confirma o caminho feliz integrado, mas não caracteriza desempenho de carga longa,
+precisão textual, matriz ampla de formatos, cancelamento/retry/recuperação com inferência
+real ou CUDA em configuração compatível. Um RTF de amostra não é projeção confiável de uma
+gravação longa.
+
+Em observação operacional posterior, um reinício do computador durante uma transcrição foi
+seguido de nova inicialização do serviço; a fila recuperou o job persistido e ele concluiu.
+Isso confirma a recuperação ponta a ponta do estado, mas não caracteriza latência de lease,
+cancelamento ou desempenho de carga longa.
 
 A Etapa 4 não executou inferência real. Fila, heartbeat, expiração, cancelamento e
 recuperação foram validados com engine falso e relógio injetável. O áudio simulado de duas

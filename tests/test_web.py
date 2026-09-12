@@ -231,6 +231,6 @@ def test_runtime_reports_stopped_worker_to_interface(web_client: TestClient) -> 
 
 def test_openapi_keeps_web_shell_outside_versioned_api(web_client: TestClient) -> None:
     schema = web_client.get("/api/openapi.json").json()
-    assert schema["info"]["version"] == "0.6.2"
+    assert schema["info"]["version"] == "0.7.0"
     assert "/" not in schema["paths"]
     assert all(path.startswith("/api/") for path in schema["paths"])
