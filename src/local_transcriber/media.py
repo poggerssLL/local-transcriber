@@ -281,10 +281,16 @@ class MediaLibrary:
             return False
         media_path = self.paths.resolve_relative(recording.relative_path)
         staged = media_path.with_name(f".{media_path.name}.{uuid4()}.deleting")
-        if media_path.exists():
-            os.replace(media_path, staged)
+
+        def stage_media() -> None:
+            if media_path.exists():
+                os.replace(media_path, staged)
+
         try:
-            deleted = self.repository.delete_recording(recording_id)
+            deleted = self.repository.delete_recording(
+                recording_id,
+                before_delete=stage_media,
+            )
         except BaseException:
             if staged.exists():
                 os.replace(staged, media_path)

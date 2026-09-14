@@ -324,3 +324,29 @@ revertam escolhas anteriores sem compreender suas consequências.
 - Consequências: `Ctrl+C` permanece o caminho de encerramento supervisionado; uma porta
   ocupada produz orientação clara para escolher outra. O script não muda políticas globais
   do PowerShell, não move o runtime e não substitui a CLI.
+
+## ADR-034 — Descoberta CUDA do Windows limitada ao processo
+
+- Data: 2026-09-14
+- Status: aceita
+- Decisão: antes de importar CTranslate2, localizar somente diretórios padrão da NVIDIA
+  compatíveis com CUDA 12 e cuDNN 9 e registrá-los com `os.add_dll_directory` no processo
+  atual.
+- Motivo: os instaladores gráficos podem não adicionar cuDNN ao `PATH`, enquanto a busca de
+  DLLs do Python moderno é restrita. A GPU e o driver, isoladamente, não asseguram que
+  CTranslate2 consiga carregar cuBLAS e cuDNN.
+- Consequências: não se muda `PATH` global, não se copia DLL, não se aceita diretório
+  fornecido pelo cliente e os handles são mantidos enquanto o processo existir. `cuda`
+  continua sem fallback silencioso; `auto` mantém CPU `int8` quando a sondagem falha.
+
+## ADR-035 — Exclusão preserva jobs ativos
+
+- Data: 2026-09-14
+- Status: aceita
+- Decisão: rejeitar em transação imediata a exclusão de gravação que tenha job `pending`
+  ou `running`, retornando conflito na API.
+- Motivo: remover um job já reivindicado elimina o estado que o worker precisa consultar e
+  pode encerrar o consumidor de fila por uma exceção não tratada.
+- Consequências: o operador cancela ou aguarda o job antes da exclusão. Ausência excepcional
+  de job reivindicado é tratada como perda de lease, permitindo que o worker continue;
+  schema, eventos, retries SQLite limitados e contratos públicos permanecem compatíveis.

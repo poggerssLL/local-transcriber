@@ -261,7 +261,6 @@ class TranscriptionWorker:
         except LeaseOwnershipLost:
             pass
         result = self.repository.get_job(job.id)
-        assert result is not None
         return result
 
     def run(self, *, once: bool = False) -> int:

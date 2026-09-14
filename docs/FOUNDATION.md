@@ -7,7 +7,7 @@
 
 O **Local Transcriber** é uma aplicação local para catalogar gravações, executar
 transcrição com Faster Whisper e exportar resultados estruturados sem depender de APIs
-de IA em nuvem. A versão atual é `0.7.0`, usa schema SQLite v4 e concluiu:
+de IA em nuvem. A versão atual é `0.7.1`, usa schema SQLite v4 e concluiu:
 
 1. fundação e persistência;
 2. biblioteca de mídia, pesquisa e exportadores;
@@ -16,6 +16,7 @@ de IA em nuvem. A versão atual é `0.7.0`, usa schema SQLite v4 e concluiu:
 5. API FastAPI local e eventos SSE persistentes;
 6. interface web local em HTML, CSS e JavaScript;
 7. integração e validação real do MVP.
+7B. aceleração CUDA local e resiliência da fila durante exclusão.
 
 A futura Etapa 8 não foi iniciada. Diarização, Ollama, microfone ao vivo e Home Assistant
 ainda não foram implementados.
@@ -138,6 +139,9 @@ habilitadas em cada conexão e todo conteúdo variável chega ao SQL por parâme
 5. move atomicamente o temporário para `media/<ano>/<uuid>/<nome>`;
 6. persiste os metadados e compensa o arquivo se o banco falhar.
 
+A exclusão é recusada enquanto a gravação possui job `pending` ou `running`; gravação,
+mídia e job são preservados até que o ciclo de trabalho chegue a estado terminal.
+
 WAV, MP3, FLAC, M4A, OGG, MP4, MKV e WebM são extensões aceitas, mas a aceitação real
 depende do contêiner e dos codecs disponíveis no PyAV instalado. Não há conversão,
 normalização ou equivalência perceptual.
@@ -171,8 +175,12 @@ validada usa Faster Whisper 1.2.1, CTranslate2 4.8.2 e PyAV 16.1.0.
   o motivo.
 
 No Windows, a sondagem verifica CTranslate2 e as bibliotecas necessárias. A presença da
-GPU não prova disponibilidade de CUDA/cuDNN. As validações reais 3B e 3C validaram apenas
-CPU `int8`; CUDA continua sem validação ponta a ponta.
+GPU não prova disponibilidade de CUDA/cuDNN. Para os runtimes oficiais CUDA 12/cuBLAS 12 e
+cuDNN 9 instalados pelo operador, a aplicação registra apenas no processo atual os
+diretórios padrão da NVIDIA com `os.add_dll_directory`, antes da importação de CTranslate2.
+Ela não altera `PATH` global nem aceita diretórios arbitrários. A 7B confirmou
+`int8_float16` em CUDA com Faster Whisper 1.2.1 e CTranslate2 4.8.2; CPU `int8` continua
+o caminho seguro quando a sondagem não aprovar CUDA.
 
 ## Abstração e serviço de transcrição
 
@@ -242,6 +250,11 @@ compartilhado, consultado nos callbacks de progresso e nos pontos cooperativos.
 cancelamento pelo worker, falha e publicação exigem status `running`, o mesmo worker e
 lease ainda válida. Um worker obsoleto abandona a tentativa local sem alterar o job que
 outro worker recuperou, e o loop permanece apto a reivindicar trabalhos seguintes.
+
+Se uma exclusão concorrente ou outra anomalia tornar indisponível um job já reivindicado,
+o serviço e o repositório convertem a ausência em `LeaseOwnershipLost`. O worker retorna
+ao loop sem asserção de existência; a política normal de exclusão impede esse caso para
+jobs pendentes ou em execução e a API responde conflito em vez de remover o estado ativo.
 
 Leases expiradas seguem política determinística: cancelamento pendente termina como
 `cancelled`; limite de tentativas atingido termina como `failed`; os demais jobs voltam a
@@ -404,7 +417,7 @@ overflow horizontal da página.
 
 ### Automatizada e com doubles
 
-A suíte de 108 testes Python e 11 testes JavaScript comportamentais funciona sem GPU,
+A suíte de 115 testes Python e 11 testes JavaScript comportamentais funciona sem GPU,
 modelo ou rede. Ela cobre configuração, domínio,
 migrações v1–v4, mídia sintética, pesquisa, exportadores, perfis, ausência de download
 automático, backend injetado, consumo lazy, reivindicação concorrente, leases, recuperação,
@@ -452,9 +465,12 @@ textual independente, portanto nenhuma taxa de precisão foi calculada. Nenhum d
 implementação foi identificado.
 
 A Etapa 7 confirma o caminho feliz integrado, mas não caracteriza desempenho de carga longa,
-precisão textual, matriz ampla de formatos, cancelamento/retry/recuperação com inferência
-real ou CUDA em configuração compatível. Um RTF de amostra não é projeção confiável de uma
-gravação longa.
+precisão textual, matriz ampla de formatos ou cancelamento/retry/recuperação com inferência
+real. A 7B acrescentou uma comparação controlada com `small`: 33,97 s de mídia levaram
+aproximadamente 118,32 s em CPU `int8` (RTF 3,482) e 19,79 s em CUDA `int8_float16`
+(RTF 0,583), incluindo carregamento. A amostra não gerou segmentos ou palavras e não mede
+qualidade de fala; o operador relatou testes posteriores de áudio em CUDA, sem telemetria
+registrada por esta entrega. Um RTF de amostra não é projeção confiável de gravação longa.
 
 Em observação operacional posterior, um reinício do computador durante uma transcrição foi
 seguido de nova inicialização do serviço; a fila recuperou o job persistido e ele concluiu.
@@ -477,7 +493,8 @@ horas confirma ausência de timeout artificial no domínio, não desempenho de c
 - qualidade foi observada sem gabarito independente, e vocabulário técnico específico
   ainda pode apresentar erros;
 - qualquer adaptação contextual futura exige escopo próprio e avaliação com gabarito;
-- CUDA não foi validada ponta a ponta;
+- CUDA foi validada somente com `small` e amostra curta; modelos maiores, duração longa,
+  estabilidade térmica e qualidade textual continuam sem caracterização;
 - reprodução no navegador depende dos codecs disponíveis;
 - a seleção atual da leitura não persiste após recarregar a página;
 - shutdown pode aguardar uma operação indivisível do engine;
@@ -495,4 +512,5 @@ Consulte [estado atual](PROJECT_STATE.md), [decisões](DECISIONS.md),
 [correção complementar 5B](PHASE_05B_OFFLINE_DOCS_AND_INCREMENTAL_SSE.md) e
 [Etapa 6](PHASE_06_WEB_INTERFACE.md) e
 [correção complementar 5C](PHASE_05C_SQLITE_CONTENTION_RELIABILITY.md) e
-[correção complementar 6B](PHASE_06B_ASYNC_CONCURRENCY_RELIABILITY.md).
+[correção complementar 6B](PHASE_06B_ASYNC_CONCURRENCY_RELIABILITY.md) e
+[correção complementar 7B](PHASE_07B_LOCAL_CUDA_ACCELERATION.md).

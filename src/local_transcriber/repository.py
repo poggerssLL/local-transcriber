@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Callable
 from dataclasses import asdict
 from datetime import date, datetime, timedelta
 from re import findall
 
 from .database import Database
-from .exceptions import LeaseOwnershipLost
+from .exceptions import LeaseOwnershipLost, RecordingHasActiveJobsError
 from .models import (
     ExportedArtifact,
     JobEvent,
@@ -125,8 +126,22 @@ class Repository:
                 ).fetchall()
         return [self._recording(row) for row in rows]
 
-    def delete_recording(self, recording_id: str) -> bool:
-        with self.database.transaction() as connection:
+    def delete_recording(
+        self, recording_id: str, *, before_delete: Callable[[], None] | None = None
+    ) -> bool:
+        with self.database.transaction(immediate=True) as connection:
+            active_job = connection.execute(
+                """SELECT 1 FROM transcription_jobs
+                   WHERE recording_id = ? AND status IN ('pending', 'running')
+                   LIMIT 1""",
+                (recording_id,),
+            ).fetchone()
+            if active_job is not None:
+                raise RecordingHasActiveJobsError(
+                    "recording has pending or running transcription jobs"
+                )
+            if before_delete is not None:
+                before_delete()
             connection.execute("DELETE FROM transcripts WHERE recording_id = ?", (recording_id,))
             connection.execute(
                 "DELETE FROM transcription_jobs WHERE recording_id = ?", (recording_id,)
@@ -676,7 +691,7 @@ class Repository:
                 (job_id,),
             ).fetchone()
         if row is None:
-            raise KeyError(f"job not found: {job_id}")
+            raise LeaseOwnershipLost("job lease ownership was lost")
         self._require_valid_lease(row, worker_id, checked_at)
         return row["cancel_requested_at"] is not None
 

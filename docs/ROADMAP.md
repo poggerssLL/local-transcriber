@@ -7,6 +7,7 @@
 5. API FastAPI e SSE — concluída.
 6. Interface web — concluída.
 7. Integração e validação real — concluída.
+7B. Aceleração CUDA local e resiliência operacional da fila — concluída.
 8. Futuras fases de diarização, Ollama, tempo real e Home Assistant — não iniciadas.
 
 Após a Etapa 3, duas validações reais antecipadas confirmaram o fluxo CPU `int8` com
@@ -49,5 +50,8 @@ continua offline e foi preservada na Etapa 7.
 A Etapa 7 concluiu a validação integrada do caminho feliz com mídia local controlada:
 importação, FastAPI, fila, Faster Whisper em CPU `int8`, SSE persistente, FTS5, leitura,
 Range e TXT, Markdown, SRT, WebVTT e JSON. O iniciador supervisionado do Windows mantém
-host loopback e consumidor único. Não houve download de modelo, uso de CUDA ou serviço
-externo. Etapa 8 não foi iniciada.
+host loopback e consumidor único. A 7B validou também CUDA `int8_float16` em uma amostra
+curta após instalação explícita de CUDA 12/cuBLAS 12/cuDNN 9, sem download de modelo,
+serviço externo ou alteração global de `PATH`. Ela bloqueou ainda a exclusão de gravação
+enquanto há job ativo, evitando a interrupção do worker observada operacionalmente. Etapa
+8 não foi iniciada.

@@ -27,6 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .config import AppConfig
 from .database import Database
+from .exceptions import RecordingHasActiveJobsError
 from .exporters import ExportFormat, TranscriptExporter
 from .media import (
     DuplicateMediaError,
@@ -757,7 +758,13 @@ def create_app(
         elif isinstance(error, (UnsupportedMediaError, InvalidMediaError)):
             status = 415
         elif isinstance(
-            error, (DuplicateMediaError, ModelNotInstalledError, sqlite3.IntegrityError)
+            error,
+            (
+                DuplicateMediaError,
+                ModelNotInstalledError,
+                RecordingHasActiveJobsError,
+                sqlite3.IntegrityError,
+            ),
         ):
             status = 409
         elif isinstance(error, (MediaImportError, ValueError)):
@@ -780,6 +787,7 @@ def create_app(
         InvalidMediaError,
         DuplicateMediaError,
         ModelNotInstalledError,
+        RecordingHasActiveJobsError,
         sqlite3.IntegrityError,
         MediaImportError,
         ValueError,

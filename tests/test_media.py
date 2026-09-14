@@ -13,6 +13,7 @@ from local_transcriber import (
     MediaImportSettings,
     MediaLibrary,
     MediaTooLargeError,
+    RecordingHasActiveJobsError,
     Repository,
     RuntimePaths,
     Transcript,
@@ -20,6 +21,7 @@ from local_transcriber import (
     UnsupportedMediaError,
     sanitize_filename,
 )
+from local_transcriber import media as media_module
 
 
 def _wav_bytes(*, sample: int = 0, frames: int = 800) -> bytes:
@@ -148,6 +150,7 @@ def test_path_traversal_is_sanitized_and_delete_is_explicit(library: MediaLibrar
     job = library.repository.add_job(
         TranscriptionJob(recording_id=recording.id, engine="test", model_name="artificial")
     )
+    library.repository.request_job_cancel(job.id)
     transcript = library.repository.add_transcript(
         Transcript(
             recording_id=recording.id,
@@ -163,3 +166,40 @@ def test_path_traversal_is_sanitized_and_delete_is_explicit(library: MediaLibrar
     assert library.repository.get_job(job.id) is None
     assert library.repository.get_transcript(transcript.id) is None
     assert library.list_recordings() == []
+
+
+def test_delete_rejects_recording_with_active_job_and_preserves_media(
+    library: MediaLibrary, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    subject = library.create_subject("Fila ativa")
+    recording = library.import_stream(
+        io.BytesIO(_wav_bytes(sample=3)),
+        original_name="ativa.wav",
+        title="Aula ativa",
+        subject_id=subject.id,
+        lesson_date=date(2026, 6, 2),
+    )
+    stored = library.paths.resolve_relative(recording.relative_path)
+    job = library.repository.add_job(
+        TranscriptionJob(recording_id=recording.id, engine="test", model_name="artificial")
+    )
+
+    original_replace = media_module.os.replace
+    replace_calls: list[tuple[object, object]] = []
+
+    def track_replace(source: object, destination: object) -> None:
+        replace_calls.append((source, destination))
+        original_replace(source, destination)
+
+    monkeypatch.setattr(media_module.os, "replace", track_replace)
+
+    with pytest.raises(RecordingHasActiveJobsError, match="pending or running"):
+        library.delete_recording(recording.id)
+
+    assert replace_calls == []
+    assert stored.is_file()
+    assert library.repository.get_recording(recording.id) == recording
+    preserved_job = library.repository.get_job(job.id)
+    assert preserved_job is not None
+    assert preserved_job.status.value == "pending"
+    assert preserved_job.recording_id == recording.id

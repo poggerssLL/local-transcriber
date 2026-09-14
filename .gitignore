@@ -11,6 +11,8 @@ dist/
 .coverage
 htmlcov/
 .env
+output/
+tmp/
 
 # Runtime and personal data must never be committed.
 runtime/

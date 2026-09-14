@@ -8,7 +8,7 @@ import socket
 import wave
 from dataclasses import dataclass
 from pathlib import Path
-from threading import Timer
+from threading import Event, Timer
 from time import monotonic, sleep
 
 import pytest
@@ -152,7 +152,7 @@ def _terminal_job(client: TestClient) -> str:
 def test_health_version_capabilities_and_openapi(client: TestClient) -> None:
     assert client.get("/api/health").json() == {
         "status": "ok",
-        "version": "0.7.0",
+        "version": "0.7.1",
         "schema_version": 4,
     }
     assert client.get("/api/version").json()["api_version"] == "1"
@@ -160,7 +160,7 @@ def test_health_version_capabilities_and_openapi(client: TestClient) -> None:
     assert capabilities["model_download_via_api"] is False
     assert capabilities["sse_replay"] is True
     openapi = client.get("/api/openapi.json").json()
-    assert openapi["info"]["version"] == "0.7.0"
+    assert openapi["info"]["version"] == "0.7.1"
     assert all(path.startswith("/api/") for path in openapi["paths"])
 
 
@@ -295,6 +295,20 @@ def test_queue_cancel_retry_and_model_status(client: TestClient) -> None:
     retried = client.post(f"/api/jobs/{job['id']}/retry")
     assert retried.json()["status"] == "pending"
     assert client.get("/api/models").json()[2]["installed"] is True
+
+
+def test_recording_delete_rejects_pending_job_without_removing_media(client: TestClient) -> None:
+    subject_id = _create_subject(client)
+    recording = _upload(client, subject_id)
+    _install_model(client.app)
+    job = client.post("/api/jobs", json={"recording_id": recording["id"]}).json()
+
+    response = client.delete(f"/api/recordings/{recording['id']}")
+
+    assert response.status_code == 409
+    assert "pending or running" in response.json()["detail"]
+    assert client.get(f"/api/recordings/{recording['id']}").status_code == 200
+    assert client.get(f"/api/jobs/{job['id']}").json()["status"] == "pending"
 
 
 def test_transcripts_segments_words_exports_and_download(client: TestClient) -> None:
@@ -597,6 +611,43 @@ def test_worker_lifecycle_processes_jobs_and_stops(tmp_path: Path) -> None:
         assert "event: completion\n" in events
         assert app.state.worker_controller.thread.is_alive()
     assert not app.state.worker_controller.thread.is_alive()
+
+
+def test_active_recording_delete_does_not_stop_api_worker(tmp_path: Path) -> None:
+    started = Event()
+    release = Event()
+
+    class BlockingEngine:
+        name = "blocking"
+
+        def transcribe(self, request, progress=None):
+            started.set()
+            assert release.wait(timeout=3)
+            return FakeEngine().transcribe(request, progress)
+
+    config = AppConfig(RuntimePaths((tmp_path / "delete-race-runtime").resolve()))
+    app = create_app(
+        config,
+        engine_factory=lambda _profile: BlockingEngine(),
+        profiles=ProfileResolver(FixedProbe()),
+        worker_poll_interval=0.01,
+    )
+    with TestClient(app) as client:
+        _install_model(app)
+        recording = _upload(client, _create_subject(client))
+        job = client.post("/api/jobs", json={"recording_id": recording["id"]}).json()
+        assert started.wait(timeout=2)
+        rejected = client.delete(f"/api/recordings/{recording['id']}")
+        assert rejected.status_code == 409
+        release.set()
+        deadline = monotonic() + 3
+        while monotonic() < deadline:
+            current = client.get(f"/api/jobs/{job['id']}").json()
+            if current["status"] == "succeeded":
+                break
+            sleep(0.01)
+        assert current["status"] == "succeeded"
+        assert app.state.worker_controller.thread.is_alive()
 
 
 def test_sse_exposes_failed_terminal_event(tmp_path: Path) -> None:

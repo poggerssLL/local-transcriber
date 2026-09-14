@@ -10,6 +10,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 from importlib import import_module
 from pathlib import Path
+from threading import Lock
 from time import perf_counter
 from typing import Any, Protocol
 
@@ -38,6 +39,69 @@ class TranscriptionCancelled(Exception):
     """Cooperative cancellation requested for a transcription job."""
 
 
+_WINDOWS_DLL_DIRECTORY_LOCK = Lock()
+_WINDOWS_DLL_DIRECTORY_HANDLES: list[Any] = []
+_WINDOWS_DLL_DIRECTORY_PATHS: set[str] = set()
+
+
+def _windows_cuda_dll_directories(
+    *, program_files: Path | None = None, cuda_path: str | None = None
+) -> tuple[Path, ...]:
+    """Return installed CUDA 12 and cuDNN 9 DLL directories in a stable order.
+
+    The NVIDIA graphical installers place these libraries below Program Files but
+    do not necessarily add the cuDNN directory to PATH.  Python 3.8+ uses a
+    restricted DLL search path, so CTranslate2 cannot rely on PATH alone.
+    """
+
+    root = program_files or Path(os.environ.get("ProgramFiles", r"C:\Program Files"))
+    cuda_roots: list[Path] = []
+    if cuda_path:
+        cuda_roots.append(Path(cuda_path))
+    cuda_install_root = root / "NVIDIA GPU Computing Toolkit" / "CUDA"
+    with suppress(OSError):
+        cuda_roots.extend(sorted(cuda_install_root.glob("v12.*"), reverse=True))
+
+    directories: list[Path] = []
+    seen: set[str] = set()
+
+    def add_if_present(directory: Path, library: str) -> None:
+        with suppress(OSError):
+            if not (directory / library).is_file():
+                return
+        key = str(directory).casefold()
+        if key not in seen:
+            seen.add(key)
+            directories.append(directory)
+
+    for cuda_root in cuda_roots:
+        add_if_present(cuda_root / "bin", "cublas64_12.dll")
+
+    cudnn_root = root / "NVIDIA" / "CUDNN"
+    with suppress(OSError):
+        for library_path in sorted(cudnn_root.glob("v9.*/bin/**/cudnn64_9.dll"), reverse=True):
+            add_if_present(library_path.parent, "cudnn64_9.dll")
+    return tuple(directories)
+
+
+def _configure_windows_cuda_dll_search_paths() -> None:
+    """Add only standard NVIDIA install folders to this process DLL search path."""
+
+    if os.name != "nt" or not hasattr(os, "add_dll_directory"):
+        return
+    with _WINDOWS_DLL_DIRECTORY_LOCK:
+        for directory in _windows_cuda_dll_directories(cuda_path=os.environ.get("CUDA_PATH")):
+            key = str(directory).casefold()
+            if key in _WINDOWS_DLL_DIRECTORY_PATHS:
+                continue
+            try:
+                handle = os.add_dll_directory(str(directory))
+            except OSError:
+                continue
+            _WINDOWS_DLL_DIRECTORY_PATHS.add(key)
+            _WINDOWS_DLL_DIRECTORY_HANDLES.append(handle)
+
+
 @dataclass(frozen=True, slots=True)
 class RuntimeCapabilities:
     cpu_compute_types: frozenset[str]
@@ -60,6 +124,7 @@ class RuntimeProbe(Protocol):
 
 class CTranslate2RuntimeProbe:
     def inspect(self) -> RuntimeCapabilities:
+        _configure_windows_cuda_dll_search_paths()
         module = import_module("ctranslate2")
         cpu_types = frozenset(module.get_supported_compute_types("cpu"))
         try:
@@ -84,6 +149,7 @@ class CTranslate2RuntimeProbe:
             return None
         import ctypes
 
+        _configure_windows_cuda_dll_search_paths()
         missing = []
         for library in ("cublas64_12.dll", "cudnn64_9.dll", "cudnn_ops64_9.dll"):
             try:
@@ -381,7 +447,7 @@ class TranscriptionService:
         self._check_lease_guard(lease_guard)
         job = self.repository.get_job(job_id)
         if job is None:
-            raise KeyError(f"job not found: {job_id}")
+            raise LeaseOwnershipLost("job is no longer available")
         if job.status is not JobStatus.RUNNING or job.worker_id != worker_id:
             raise LeaseOwnershipLost("job is not owned by this worker")
         requested = job.settings or TranscriptionSettings(

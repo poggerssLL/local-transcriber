@@ -5,7 +5,7 @@ A versão atual inclui importação segura e inspeção de mídia, pesquisa SQLi
 transcrição local síncrona, fila persistente com worker local, API FastAPI restrita ao
 localhost, interface web local, eventos SSE e exportadores TXT, Markdown, SRT, WebVTT e JSON.
 
-Versão atual: `0.7.0`, com schema SQLite v4.
+Versão atual: `0.7.1`, com schema SQLite v4.
 
 ## Requisitos e instalação
 
@@ -78,6 +78,10 @@ processa a fila localmente com concorrência padrão 1. Jobs mantêm progresso e
 SQLite, aceitam cancelamento e retry e recuperam leases expiradas. A recuperação pode
 reiniciar a inferência desde o começo; a execução é `at least once`, enquanto a publicação
 final permanece idempotente e limitada a uma transcrição por job.
+
+Uma gravação com job `pending` ou `running` não pode ser excluída: a API e a biblioteca
+respondem conflito e preservam mídia, metadados e job. Cancele o job ou aguarde seu estado
+terminal antes de excluir a gravação.
 
 O heartbeat distingue erros SQLite transitórios de perda de posse: tenta renovar de
 forma limitada enquanto existe margem segura e sinaliza o worker quando a lease não pode
@@ -247,12 +251,23 @@ No Windows, o runtime atual do Faster Whisper/CTranslate2 exige CUDA 12, cuBLAS 
 cuDNN 9. A presença de uma GPU ou de seu driver não basta. Use `config check` para o
 diagnóstico local. Nenhum binário NVIDIA é obtido pela aplicação.
 
+Na configuração validada, o operador instalou CUDA Toolkit 12.8.2 (com cuBLAS 12) e
+cuDNN 9.26.0.51 para CUDA 12 por canais oficiais da NVIDIA. A aplicação detecta somente
+os diretórios padrão desses componentes e os registra no processo atual; ela não muda o
+`PATH` global. Consulte a [correção 7B](docs/PHASE_07B_LOCAL_CUDA_ACCELERATION.md) para
+fontes, reversão e limites.
+
 Três validações reais confirmaram o modelo `small` multilíngue em CPU `int8`, com idioma
 detectado, VAD, timestamps por palavra, métricas, cinco exportações e persistência. A Etapa
 7 percorreu uma amostra curta controlada pela interface e API locais, worker, SSE, busca e
-streaming por Range. Os RTFs observados foram 1,612, 0,4778 e aproximadamente 0,816. Essas
-evidências continuam limitadas a gravações curtas sem gabarito textual independente;
-desempenho em cargas longas e CUDA permanecem limitações conhecidas.
+streaming por Range. Os RTFs observados foram 1,612, 0,4778 e aproximadamente 0,816.
+
+A 7B comparou a mesma amostra curta em CPU `int8` (RTF aproximado 3,482) e CUDA
+`int8_float16` (RTF aproximado 0,583), incluindo carregamento do modelo. Essa amostra não
+teve segmentos ou palavras, portanto comprova a execução CUDA, não a qualidade de fala. O
+operador informou testes posteriores de áudios em CUDA, sem métricas capturadas nesta
+entrega. Essas evidências não caracterizam cargas longas, modelos maiores ou precisão sem
+gabarito independente.
 
 ## Contexto para contribuidores
 
@@ -283,3 +298,5 @@ desempenho em cargas longas e CUDA permanecem limitações conhecidas.
   gerações de requisição, contexto de exportação e ordenação SSE por job.
 - [Integração e validação real 7](docs/PHASE_07_MVP_INTEGRATION_AND_REAL_VALIDATION.md):
   evidência ponta a ponta local, limites da amostra e iniciador supervisionado.
+- [Aceleração CUDA local 7B](docs/PHASE_07B_LOCAL_CUDA_ACCELERATION.md): descoberta local
+  das DLLs, validação CUDA, proteção da fila durante exclusão e limitações restantes.

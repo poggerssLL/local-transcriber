@@ -75,15 +75,19 @@ só, uma tarefa autorizada; qualquer mudança continua dependente do escopo soli
   avaliada contra gabarito independente, sem inferir precisão a partir das amostras atuais.
 - Fase provável: não definida no roadmap atual.
 
-## Runtime CUDA incompleto no notebook verificado
+## Caracterização CUDA ainda parcial
 
-- Descrição: CTranslate2 encontrou uma GPU, mas `cublas64_12.dll` e
-  `cudnn_ops64_9.dll` não estavam carregáveis em 2026-09-09.
-- Impacto: o perfil `auto` usa CPU `int8`; CUDA explícita falha com diagnóstico, enquanto
-  a inferência CPU real já foi confirmada.
-- Situação atual: nenhum runtime ou DLL NVIDIA foi instalado pela aplicação.
-- Possível direção futura: instalar CUDA 12/cuBLAS 12/cuDNN 9 por canais oficiais e repetir
-  `local-transcriber config check` antes do teste opt-in.
+- Descrição: CUDA 12, cuBLAS 12 e cuDNN 9 foram carregados localmente e a 7B confirmou
+  `small` com `int8_float16` em uma amostra curta.
+- Impacto: a aceleração está operacional, mas desempenho, estabilidade térmica, consumo de
+  VRAM, qualidade textual, modelos maiores, duração longa e diversidade de codecs não
+  podem ser inferidos dessa amostra.
+- Situação atual: a aplicação registra somente no processo atual os diretórios padrão da
+  NVIDIA, sem mudar `PATH` global. A comparação controlada não produziu segmentos ou
+  palavras; o operador relatou testes posteriores de áudio em CUDA, sem métricas ou
+  conteúdo registrados pela entrega.
+- Possível direção futura: executar matriz sanitizada e autorizada de modelos, durações,
+  codecs, temperatura e gabaritos independentes, sem download automático de modelo.
 - Fase provável: validação futura autorizada.
 
 ## Recuperação reinicia a inferência

@@ -16,9 +16,11 @@ from local_transcriber import (
     JobPhase,
     JobStatus,
     LeaseOwnershipLost,
+    MediaLibrary,
     ProfileResolver,
     ProgressEvent,
     Recording,
+    RecordingHasActiveJobsError,
     Repository,
     RuntimeCapabilities,
     RuntimePaths,
@@ -192,6 +194,39 @@ def test_worker_heartbeat_renews_lease_while_engine_is_busy(tmp_path: Path) -> N
         release.set()
         assert future.result(timeout=3).status is JobStatus.SUCCEEDED
     assert repository.get_job(job.id).attempt_count == 1
+
+
+def test_active_recording_delete_does_not_stop_claimed_worker(tmp_path: Path) -> None:
+    paths, _database, repository, recording = _context(tmp_path)
+    job = TranscriptionQueue(repository, paths).enqueue(recording.id)
+    started = Event()
+    release = Event()
+
+    class BlockingEngine:
+        name = "blocking"
+
+        def transcribe(self, request, progress=None):
+            started.set()
+            assert release.wait(timeout=3)
+            return EngineOutput("", (), "pt", 0.9, 120)
+
+    worker = TranscriptionWorker(
+        repository,
+        paths,
+        worker_id="worker-a",
+        profiles=ProfileResolver(FixedProbe()),
+        engine_factory=lambda _profile: BlockingEngine(),
+    )
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(worker.run_once)
+        assert started.wait(timeout=2)
+        with pytest.raises(RecordingHasActiveJobsError):
+            MediaLibrary(repository, paths).delete_recording(recording.id)
+        release.set()
+        assert future.result(timeout=3).status is JobStatus.SUCCEEDED
+
+    assert repository.get_job(job.id).status is JobStatus.SUCCEEDED
+    assert repository.get_recording(recording.id) is not None
 
 
 def test_expired_lease_is_recovered_and_reclaimed_from_the_beginning(tmp_path: Path) -> None:

@@ -29,6 +29,7 @@ from local_transcriber import (
     TranscriptionService,
     TranscriptionSettings,
     Word,
+    transcription,
 )
 
 
@@ -64,6 +65,79 @@ def test_auto_falls_back_but_explicit_cuda_fails_actionably() -> None:
     assert "fallback" in automatic.reason
     with pytest.raises(RuntimeProfileError, match="CUDA 12, cuDNN 9"):
         resolver.resolve("cuda")
+
+
+def test_windows_cuda_dll_discovery_uses_only_standard_nvidia_locations(tmp_path: Path) -> None:
+    program_files = tmp_path / "Program Files"
+    cuda_bin = program_files / "NVIDIA GPU Computing Toolkit" / "CUDA" / "v12.8" / "bin"
+    cudnn_bin = program_files / "NVIDIA" / "CUDNN" / "v9.26" / "bin" / "12.9"
+    cuda_bin.mkdir(parents=True)
+    cudnn_bin.mkdir(parents=True)
+    (cuda_bin / "cublas64_12.dll").write_bytes(b"test")
+    (cudnn_bin / "cudnn64_9.dll").write_bytes(b"test")
+
+    assert transcription._windows_cuda_dll_directories(program_files=program_files) == (
+        cuda_bin,
+        cudnn_bin,
+    )
+
+
+def test_windows_cuda_dll_directories_are_registered_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    registered: list[str] = []
+    directory = Path("C:/Program Files/NVIDIA/CUDNN/v9.26/bin/12.9")
+    monkeypatch.setattr(transcription.os, "name", "nt")
+    monkeypatch.setattr(transcription, "_WINDOWS_DLL_DIRECTORY_PATHS", set())
+    monkeypatch.setattr(transcription, "_WINDOWS_DLL_DIRECTORY_HANDLES", [])
+    monkeypatch.setattr(
+        transcription, "_windows_cuda_dll_directories", lambda **_kwargs: (directory,)
+    )
+    monkeypatch.setattr(
+        transcription.os,
+        "add_dll_directory",
+        lambda value: registered.append(value) or object(),
+        raising=False,
+    )
+
+    transcription._configure_windows_cuda_dll_search_paths()
+    transcription._configure_windows_cuda_dll_search_paths()
+
+    assert registered == [str(directory)]
+
+
+def test_runtime_probe_configures_dll_search_before_importing_ctranslate2(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    class FakeCTranslate2:
+        @staticmethod
+        def get_supported_compute_types(device: str) -> set[str]:
+            return {"int8"} if device == "cpu" else {"int8_float16"}
+
+        @staticmethod
+        def get_cuda_device_count() -> int:
+            return 1
+
+    monkeypatch.setattr(
+        transcription,
+        "_configure_windows_cuda_dll_search_paths",
+        lambda: calls.append("configured"),
+    )
+    monkeypatch.setattr(
+        transcription,
+        "import_module",
+        lambda _name: calls.append("imported") or FakeCTranslate2(),
+    )
+    monkeypatch.setattr(
+        transcription.CTranslate2RuntimeProbe,
+        "_windows_cuda_library_error",
+        staticmethod(lambda: None),
+    )
+
+    capabilities = transcription.CTranslate2RuntimeProbe().inspect()
+
+    assert calls[:2] == ["configured", "imported"]
+    assert capabilities.cuda_compute_types == frozenset({"int8_float16"})
 
 
 def _write_fake_model(directory: Path) -> None:

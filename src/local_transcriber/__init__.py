@@ -2,7 +2,7 @@
 
 from .config import AppConfig, RuntimePaths
 from .database import SCHEMA_VERSION, Database
-from .exceptions import LeaseOwnershipLost
+from .exceptions import LeaseOwnershipLost, RecordingHasActiveJobsError
 from .exporters import ExportFormat, TranscriptExporter, render_transcript
 from .media import (
     ALLOWED_EXTENSIONS,
@@ -69,6 +69,7 @@ __all__ = [
     "JobPhase",
     "JobStatus",
     "LeaseOwnershipLost",
+    "RecordingHasActiveJobsError",
     "MediaImportError",
     "MediaImportSettings",
     "MediaInfo",

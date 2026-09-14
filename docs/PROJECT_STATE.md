@@ -1,6 +1,6 @@
 # Estado atual do projeto
 
-> Fotografia verificada em 2026-09-11 após a Etapa 7. Atualize este documento ao fim de cada fase;
+> Fotografia verificada em 2026-09-14 após a correção complementar 7B. Atualize este documento ao fim de cada fase;
 > não reescreva os relatórios históricos de fases concluídas.
 
 O **Local Transcriber** é uma aplicação local para catalogar gravações e persistir o
@@ -10,11 +10,12 @@ API FastAPI restrita ao localhost, interface web local, eventos SSE, exportadore
 persistência de metadados em SQLite; mídias, modelos e demais dados de runtime ficam fora
 do repositório.
 
-- Versão do pacote: `0.7.0`.
+- Versão do pacote: `0.7.1`.
 - Schema SQLite: v4.
 - Etapas concluídas: 1, fundação e persistência; 2, biblioteca de mídia e exportadores;
   3, Faster Whisper, gerenciamento explícito de modelos e CLI; 4, fila persistente;
-  5, API HTTP local e SSE; 6, interface web local; 7, integração e validação real do MVP.
+  5, API HTTP local e SSE; 6, interface web local; 7, integração e validação real do MVP;
+  7B, aceleração CUDA local e resiliência da exclusão durante jobs ativos.
 - Funcionalidades disponíveis: configuração de runtime, catálogo de matérias e gravações,
   importação e inspeção de mídia por PyAV, duplicidade exata por SHA-256, pesquisa FTS5,
   persistência do domínio, transcrição síncrona, enfileiramento, worker local sequencial,
@@ -30,10 +31,10 @@ do repositório.
   mantém o processo em primeiro plano e fixa loopback e um worker.
 - Dependências validadas: PyAV 16.1.0, Faster Whisper 1.2.1, CTranslate2 4.8.2,
   FastAPI 0.116.2, Starlette 0.48.0, Uvicorn 0.52.4 e python-multipart 0.0.32.
-- Última validação registrada nesta fotografia: suíte automatizada com 108 testes Python e
-  11 testes JavaScript comportamentais, e execução real ponta a ponta em uma amostra curta
-  controlada. A execução passou por upload local, job HTTP, worker Faster Whisper, eventos
-  persistentes, busca FTS5, leitura, Range e cinco exportações, sem rede ou download.
+- Última validação registrada nesta fotografia: 115 testes Python e 11 testes JavaScript
+  comportamentais aprovados, além de uma comparação controlada CPU/CUDA pela fila local.
+  Os testes automatizados usam doubles, mídia sintética e runtime temporário; a execução
+  real não acessou rede nem baixou modelo.
 - Commit funcional verificado da Etapa 3: `b28da0480bee08f533a338001284b36e2a6565bc`.
 - Próxima etapa: futura Etapa 8, que não foi iniciada nesta entrega.
 - `local-transcriber serve` aceita somente `127.0.0.1` e um consumidor de fila por
@@ -80,8 +81,18 @@ do repositório.
 - A estrutura temporal e os números principais foram validados, com erros observados em
   vocabulário técnico. Sem gabarito textual independente, nenhuma taxa de precisão foi
   calculada.
-- A sondagem real encontrou um dispositivo CUDA, mas faltaram `cublas64_12.dll` e
-  `cudnn_ops64_9.dll`; CUDA permanece sem validação ponta a ponta.
+- No Windows, a aplicação registra apenas no processo atual os diretórios padrão de CUDA
+  12 e cuDNN 9 antes de importar CTranslate2. Com CUDA Toolkit 12.8.2, cuBLAS 12 e cuDNN
+  9.26.0.51 instalados explicitamente pelo operador, `config check` confirmou GPU e
+  `int8_float16` sem erro. Não há modificação global de `PATH`.
+- A comparação real com `small`, VAD e timestamps, em 33,97 s de mídia, registrou
+  aproximadamente 118,32 s de processamento CPU `int8` (RTF 3,482) e 19,79 s em CUDA
+  `int8_float16` (RTF 0,583). É uma amostra curta e inclui carregamento; não é benchmark
+  de carga longa. A amostra controlada não teve segmentos ou palavras. O operador relatou
+  testes posteriores de áudio em CUDA, sem métricas coletadas por esta entrega.
+- A exclusão de uma gravação com job `pending` ou `running` agora recebe conflito e preserva
+  gravação, mídia e job. Uma ausência excepcional de job reivindicado é tratada como perda
+  de lease, sem encerrar o worker.
 - Fora do MVP atual: diarização, Ollama, microfone ao vivo e Home Assistant.
 
 Referências: [contrato](PROJECT_CONTRACT.md), [arquitetura viva](FOUNDATION.md),
@@ -96,4 +107,5 @@ Referências: [contrato](PROJECT_CONTRACT.md), [arquitetura viva](FOUNDATION.md)
 [Etapa 6](PHASE_06_WEB_INTERFACE.md) e
 [correção complementar 5C](PHASE_05C_SQLITE_CONTENTION_RELIABILITY.md) e
 [correção complementar 6B](PHASE_06B_ASYNC_CONCURRENCY_RELIABILITY.md) e
-[Etapa 7](PHASE_07_MVP_INTEGRATION_AND_REAL_VALIDATION.md).
+[Etapa 7](PHASE_07_MVP_INTEGRATION_AND_REAL_VALIDATION.md) e
+[correção complementar 7B](PHASE_07B_LOCAL_CUDA_ACCELERATION.md).
