@@ -135,6 +135,22 @@ export class LocalApi {
     });
   }
 
+  summary(transcriptId, options = {}) {
+    return this.request(`/transcripts/${encodeURIComponent(transcriptId)}/summary`, options);
+  }
+
+  generateSummary(transcriptId, payload = {}, options = {}) {
+    return this.request(`/transcripts/${encodeURIComponent(transcriptId)}/summary`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+      ...options,
+    });
+  }
+
+  summaryDownloadUrl(transcriptId, format = "md") {
+    return `${API_ROOT}/transcripts/${encodeURIComponent(transcriptId)}/summary/download?format=${encodeURIComponent(format)}`;
+  }
+
   eventStream(jobId, handlers, { afterSequence = 0 } = {}) {
     const cursor = Number.isSafeInteger(afterSequence) && afterSequence >= 0 ? afterSequence : 0;
     const source = new EventSource(

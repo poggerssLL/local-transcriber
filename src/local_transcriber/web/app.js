@@ -753,6 +753,7 @@ async function openReader(recordingId) {
     };
     state.selectedRecording = currentRecording;
     renderReader(currentRecording, transcript, artifacts);
+    loadSummary(transcript.id, request.signal);
     showView("leitura", true);
   } catch (error) {
     if (readerRequest.isCurrent(request, recordingId) && !isAbortError(error)) {
@@ -914,6 +915,285 @@ function isReaderContextCurrent(context) {
   );
 }
 
+function parseTimestampSeconds(timestamp) {
+  if (typeof timestamp === "number" && Number.isFinite(timestamp)) {
+    return Math.max(0, timestamp);
+  }
+  if (!timestamp || typeof timestamp !== "string") {
+    return 0;
+  }
+  const cleaned = timestamp.trim().replace(",", ".");
+  const parts = cleaned.split(":");
+  try {
+    if (parts.length === 3) {
+      return parseInt(parts[0], 10) * 3600 + parseInt(parts[1], 10) * 60 + parseFloat(parts[2]);
+    }
+    if (parts.length === 2) {
+      return parseInt(parts[0], 10) * 60 + parseFloat(parts[1]);
+    }
+    return parseFloat(parts[0]) || 0;
+  } catch (_e) {
+    return 0;
+  }
+}
+
+function seekActivePlayer(seconds) {
+  const video = byId("video-player");
+  const audio = byId("audio-player");
+  const player = (video && !video.hidden) ? video : audio;
+  if (player && Number.isFinite(seconds)) {
+    player.currentTime = Math.max(0, seconds);
+    player.focus();
+    player.play().catch(() => undefined);
+  }
+}
+
+function resetSummaryUI() {
+  const emptyState = byId("summary-empty-state");
+  const contentState = byId("summary-content");
+  const indicator = byId("summary-status-indicator");
+  const btnGen = byId("btn-generate-summary");
+  const btnGenText = byId("btn-generate-summary-text");
+  const downloadGroup = byId("summary-download-group");
+
+  if (emptyState) emptyState.hidden = false;
+  if (contentState) contentState.hidden = true;
+  if (indicator) indicator.hidden = true;
+  if (downloadGroup) downloadGroup.hidden = true;
+
+  if (btnGen) {
+    btnGen.disabled = false;
+    if (btnGenText) btnGenText.textContent = "Gerar Resumo com Ollama";
+  }
+
+  const thesisEl = byId("summary-core-thesis");
+  if (thesisEl) thesisEl.textContent = "";
+
+  const parasEl = byId("summary-executive-paragraphs");
+  if (parasEl) clear(parasEl);
+
+  const spokenEl = byId("summary-spoken-text");
+  if (spokenEl) spokenEl.textContent = "";
+
+  const glossaryBody = byId("summary-glossary-body");
+  if (glossaryBody) clear(glossaryBody);
+
+  const flashcardsGrid = byId("summary-flashcards-grid");
+  if (flashcardsGrid) clear(flashcardsGrid);
+}
+
+function renderSummary(summary, transcriptId) {
+  if (!summary) return;
+
+  const emptyState = byId("summary-empty-state");
+  const contentState = byId("summary-content");
+  const indicator = byId("summary-status-indicator");
+  const btnGen = byId("btn-generate-summary");
+  const btnGenText = byId("btn-generate-summary-text");
+  const downloadGroup = byId("summary-download-group");
+  const modelBadge = byId("summary-model-badge");
+
+  if (emptyState) emptyState.hidden = true;
+  if (contentState) contentState.hidden = false;
+  if (indicator) indicator.hidden = true;
+
+  if (btnGen) {
+    btnGen.disabled = false;
+    if (btnGenText) btnGenText.textContent = "Regerar com Ollama";
+  }
+
+  if (modelBadge && summary.provenance?.model_name) {
+    modelBadge.textContent = summary.provenance.model_name;
+  }
+
+  const thesisEl = byId("summary-core-thesis");
+  if (thesisEl) {
+    thesisEl.textContent = summary.executive?.core_thesis || "Síntese dos temas centrais abordados.";
+  }
+
+  const parasContainer = byId("summary-executive-paragraphs");
+  if (parasContainer) {
+    clear(parasContainer);
+    const paragraphs = summary.executive?.paragraphs || [];
+    if (paragraphs.length === 0) {
+      parasContainer.append(element("p", { text: "Nenhum detalhe adicional disponível para o resumo executivo." }));
+    } else {
+      for (const pText of paragraphs) {
+        parasContainer.append(element("p", { text: pText }));
+      }
+    }
+  }
+
+  const spokenEl = byId("summary-spoken-text");
+  if (spokenEl) {
+    spokenEl.textContent = summary.spoken_summary || "";
+  }
+
+  const glossaryBody = byId("summary-glossary-body");
+  const glossaryCount = byId("glossary-count");
+  if (glossaryBody) {
+    clear(glossaryBody);
+    const items = summary.glossary || [];
+    if (glossaryCount) {
+      glossaryCount.textContent = `${items.length} ${items.length === 1 ? "termo" : "termos"}`;
+    }
+    if (items.length === 0) {
+      glossaryBody.append(
+        element("tr", {}, [
+          element("td", { text: "Nenhum termo técnico específico destacado.", attributes: { colspan: "3" } }),
+        ])
+      );
+    } else {
+      for (const entry of items) {
+        const seekBtn = element("button", {
+          className: "timestamp-button",
+          text: entry.first_timestamp || "00:00:00",
+          type: "button",
+          title: `Ir para ${entry.first_timestamp || "00:00:00"}`,
+        });
+        seekBtn.addEventListener("click", () => {
+          seekActivePlayer(parseTimestampSeconds(entry.first_timestamp));
+        });
+
+        glossaryBody.append(
+          element("tr", {}, [
+            element("td", {}, [seekBtn]),
+            element("td", { className: "col-term", text: entry.term }),
+            element("td", { className: "col-definition", text: entry.definition }),
+          ])
+        );
+      }
+    }
+  }
+
+  const flashcardsGrid = byId("summary-flashcards-grid");
+  const flashcardsCount = byId("flashcards-count");
+  if (flashcardsGrid) {
+    clear(flashcardsGrid);
+    const cards = summary.flashcards || [];
+    if (flashcardsCount) {
+      flashcardsCount.textContent = `${cards.length} ${cards.length === 1 ? "card" : "cards"}`;
+    }
+    cards.forEach((card, idx) => {
+      const idxSpan = element("span", {
+        className: "flashcard-idx",
+        text: `Card #${String(idx + 1).padStart(2, "0")}`,
+      });
+      const tsBtn = element("button", {
+        className: "timestamp-button",
+        text: card.timestamp || "00:00:00",
+        type: "button",
+        title: `Ouvir trecho (${card.timestamp || "00:00:00"})`,
+      });
+      tsBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        seekActivePlayer(parseTimestampSeconds(card.timestamp));
+      });
+
+      const header = element("div", { className: "flashcard-header" }, [idxSpan, tsBtn]);
+      const questionEl = element("h5", { className: "flashcard-question", text: card.question });
+      const answerEl = element("div", {
+        className: "flashcard-answer",
+        text: card.answer,
+        attributes: { id: `flashcard-ans-${idx}` },
+      });
+
+      const toggleBtn = element("button", {
+        className: "button button-secondary button-sm flashcard-toggle",
+        text: "Revelar Resposta",
+        type: "button",
+        attributes: {
+          "aria-expanded": "false",
+          "aria-controls": `flashcard-ans-${idx}`,
+        },
+      });
+
+      const cardEl = element("article", {
+        className: "flashcard",
+        attributes: { role: "listitem" },
+      }, [
+        header,
+        questionEl,
+        answerEl,
+        element("div", { className: "flashcard-footer" }, [toggleBtn]),
+      ]);
+
+      const toggleCard = () => {
+        const isRevealed = cardEl.classList.toggle("is-revealed");
+        toggleBtn.setAttribute("aria-expanded", String(isRevealed));
+        toggleBtn.textContent = isRevealed ? "Ocultar Resposta" : "Revelar Resposta";
+      };
+
+      toggleBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggleCard();
+      });
+      cardEl.addEventListener("click", toggleCard);
+
+      flashcardsGrid.append(cardEl);
+    });
+  }
+
+  if (downloadGroup) {
+    downloadGroup.hidden = false;
+    const btnMd = byId("btn-download-summary-md");
+    const btnJson = byId("btn-download-summary-json");
+    if (btnMd) {
+      btnMd.href = api.summaryDownloadUrl(transcriptId, "md");
+      btnMd.download = `resumo_${transcriptId}.md`;
+    }
+    if (btnJson) {
+      btnJson.href = api.summaryDownloadUrl(transcriptId, "json");
+      btnJson.download = `resumo_${transcriptId}.json`;
+    }
+  }
+}
+
+async function loadSummary(transcriptId, signal) {
+  resetSummaryUI();
+  try {
+    const summary = await api.summary(transcriptId, { signal });
+    if (state.readerContext?.transcriptId === transcriptId && summary && summary.executive) {
+      renderSummary(summary, transcriptId);
+    }
+  } catch (_error) {
+    // 404 esperado quando o resumo ainda não foi gerado
+  }
+}
+
+async function handleGenerateSummary() {
+  const transcriptId = state.readerContext?.transcriptId;
+  if (!transcriptId) {
+    toast("Nenhuma transcrição ativa selecionada.", "error");
+    return;
+  }
+
+  const btnGen = byId("btn-generate-summary");
+  const btnGenText = byId("btn-generate-summary-text");
+  const indicator = byId("summary-status-indicator");
+  const statusText = byId("summary-status-text");
+
+  if (btnGen) btnGen.disabled = true;
+  if (btnGenText) btnGenText.textContent = "Gerando síntese...";
+  if (indicator) indicator.hidden = false;
+  if (statusText) statusText.textContent = "Processando com Ollama local…";
+  announce("Iniciando síntese estruturada com Ollama.");
+
+  try {
+    const summary = await api.generateSummary(transcriptId);
+    if (state.readerContext?.transcriptId === transcriptId) {
+      renderSummary(summary, transcriptId);
+    }
+    toast("Resumo estruturado gerado com sucesso!");
+    announce("Resumo estruturado concluído.");
+  } catch (error) {
+    toast(errorMessage(error), "error");
+    if (btnGen) btnGen.disabled = false;
+    if (btnGenText) btnGenText.textContent = "Tentar Novamente com Ollama";
+    if (indicator) indicator.hidden = true;
+  }
+}
+
 function wireStaticEvents() {
   window.addEventListener("local-api-offline", () => setServiceState(false));
   window.addEventListener("local-api-online", () => {
@@ -934,6 +1214,21 @@ function wireStaticEvents() {
   for (const button of document.querySelectorAll("[data-close-dialog]")) {
     button.addEventListener("click", () => byId(button.dataset.closeDialog).close());
   }
+
+  byId("btn-generate-summary")?.addEventListener("click", handleGenerateSummary);
+  byId("btn-copy-spoken")?.addEventListener("click", async () => {
+    const spokenEl = byId("summary-spoken-text");
+    const text = spokenEl?.textContent || "";
+    if (!text) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      toast("Roteiro falado copiado para a área de transferência.");
+    } catch (_e) {
+      toast("Não foi possível copiar para a área de transferência.", "error");
+    }
+  });
 
   byId("retry-connection").addEventListener("click", loadAll);
   byId("refresh-jobs").addEventListener("click", async () => {

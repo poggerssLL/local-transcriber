@@ -1,42 +1,43 @@
 # Estado atual do projeto
 
-> Fotografia verificada em 2026-09-14 após a correção complementar 7B. Atualize este documento ao fim de cada fase;
+> Fotografia verificada em 2026-09-18 após a conclusão da Etapa 8. Atualize este documento ao fim de cada fase;
 > não reescreva os relatórios históricos de fases concluídas.
 
 O **Local Transcriber** é uma aplicação local para catalogar gravações e persistir o
 ciclo de vida de transcrições. A arquitetura atual é um pacote Python com modelos de
 domínio, biblioteca de mídia, engine desacoplado, fila persistente, worker local, CLI,
-API FastAPI restrita ao localhost, interface web local, eventos SSE, exportadores determinísticos e
-persistência de metadados em SQLite; mídias, modelos e demais dados de runtime ficam fora
-do repositório.
+API FastAPI restrita ao localhost, interface web local, eventos SSE, exportadores determinísticos,
+resumo estruturado com Ollama local e persistência de metadados em SQLite; mídias, modelos e
+demais dados de runtime ficam fora do repositório.
 
 - Versão do pacote: `0.7.1`.
 - Schema SQLite: v4.
 - Etapas concluídas: 1, fundação e persistência; 2, biblioteca de mídia e exportadores;
   3, Faster Whisper, gerenciamento explícito de modelos e CLI; 4, fila persistente;
   5, API HTTP local e SSE; 6, interface web local; 7, integração e validação real do MVP;
-  7B, aceleração CUDA local e resiliência da exclusão durante jobs ativos.
+  7B, aceleração CUDA local e resiliência da exclusão durante jobs ativos; 8, resumo estruturado
+  com Ollama local e integração web completa (visualização e download).
 - Funcionalidades disponíveis: configuração de runtime, catálogo de matérias e gravações,
   importação e inspeção de mídia por PyAV, duplicidade exata por SHA-256, pesquisa FTS5,
   persistência do domínio, transcrição síncrona, enfileiramento, worker local sequencial,
   progresso e eventos persistentes, cancelamento, retry, recuperação por lease e exportação
   TXT, Markdown, SRT, WebVTT e JSON; API versionada sob `/api`, upload progressivo,
   streaming de mídia com Range, downloads de exportações e replay de eventos SSE por
-  `Last-Event-ID`; interface web sem build e sem dependência de CDN para painel,
-  matérias, biblioteca, fila, leitura, exportação e modelos; a especificação OpenAPI JSON
-  continua local e não existe visualizador HTML dos contratos; um único entrypoint expõe
-  esses serviços. Gerações monotônicas, cancelamento de requisições e validação explícita
-  do contexto impedem que resultados assíncronos obsoletos substituam a seleção atual. O
-  iniciador `scripts/start-local-transcriber.ps1` verifica `.venv` e a porta escolhida,
-  mantém o processo em primeiro plano e fixa loopback e um worker.
+  `Last-Event-ID`; módulo de sumarização pedagógica via Ollama local (`qwen2.5:3b`) com Map-Reduce
+  temporal, geração de sidecars `.resumo.md` e `.resumo.json`, rotas de consulta, geração e download;
+  interface web sem build e sem dependência de CDN para painel, matérias, biblioteca, fila,
+  leitura sincronizada, exportação, modelos e painel interativo de resumo com tese central,
+  roteiro falado para podcast, glossário com sincronização no player de áudio/vídeo, flashcards de
+  fixação ativa e downloads diretos de resumo; a especificação OpenAPI JSON continua local e não
+  existe visualizador HTML dos contratos; um único entrypoint expõe esses serviços. Gerações
+  monotônicas, cancelamento de requisições e validação explícita do contexto impedem que resultados
+  assíncronos obsoletos substituam a seleção atual. O iniciador `scripts/start-local-transcriber.ps1`
+  verifica `.venv` e a porta escolhida, mantém o processo em primeiro plano e fixa loopback e um worker.
 - Dependências validadas: PyAV 16.1.0, Faster Whisper 1.2.1, CTranslate2 4.8.2,
   FastAPI 0.116.2, Starlette 0.48.0, Uvicorn 0.52.4 e python-multipart 0.0.32.
-- Última validação registrada nesta fotografia: 115 testes Python e 11 testes JavaScript
-  comportamentais aprovados, além de uma comparação controlada CPU/CUDA pela fila local.
-  Os testes automatizados usam doubles, mídia sintética e runtime temporário; a execução
-  real não acessou rede nem baixou modelo.
-- Commit funcional verificado da Etapa 3: `b28da0480bee08f533a338001284b36e2a6565bc`.
-- Próxima etapa: futura Etapa 8, que não foi iniciada nesta entrega.
+- Última validação registrada nesta fotografia: 134 testes Python aprovados (incluindo 19 testes
+  específicos do resumidor e da API de resumos) e verificação estática pelo ruff com 0 erros.
+- Próxima etapa: futuras etapas de diarização ou transcrição contínua em tempo real.
 - `local-transcriber serve` aceita somente `127.0.0.1` e um consumidor de fila por
   runtime. `Host` e `Origin` são validados, respostas não expõem caminhos físicos e a API
   não inicia downloads de modelos.

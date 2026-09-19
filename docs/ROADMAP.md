@@ -8,7 +8,8 @@
 6. Interface web — concluída.
 7. Integração e validação real — concluída.
 7B. Aceleração CUDA local e resiliência operacional da fila — concluída.
-8. Futuras fases de diarização, Ollama, tempo real e Home Assistant — não iniciadas.
+8. Resumo Estruturado com Ollama local e integração web completa — concluída.
+9. Futuras fases de diarização, tempo real contínuo e Home Assistant — não iniciadas.
 
 Após a Etapa 3, duas validações reais antecipadas confirmaram o fluxo CPU `int8` com
 modelo local, exportações e persistência. Os RTFs observados foram 1,612 e 0,4778, mas
@@ -53,5 +54,13 @@ Range e TXT, Markdown, SRT, WebVTT e JSON. O iniciador supervisionado do Windows
 host loopback e consumidor único. A 7B validou também CUDA `int8_float16` em uma amostra
 curta após instalação explícita de CUDA 12/cuBLAS 12/cuDNN 9, sem download de modelo,
 serviço externo ou alteração global de `PATH`. Ela bloqueou ainda a exclusão de gravação
-enquanto há job ativo, evitando a interrupção do worker observada operacionalmente. Etapa
-8 não foi iniciada.
+enquanto há job ativo, evitando a interrupção do worker observada operacionalmente.
+
+A Etapa 8 integrou a síntese pedagógica automatizada via Ollama local (`qwen2.5:3b`)
+utilizando Map-Reduce temporal por blocos de 20 minutos, gerando artefatos sidecar
+`transcript.resumo.md` e `transcript.resumo.json`. A interface web foi expandida com
+painel interativo de leitura (tese central, resumo executivo, roteiro de podcast com cópia,
+glossário com sincronização de timestamps no player de mídia, flashcards com revelação
+ativa e downloads diretos de resumo). Foram adicionados 19 testes automatizados com mocks
+(totalizando 134 testes aprovados no repositório). A política de privacidade, execução offline
+e imutabilidade dos arquivos originais permanece integralmente respeitada. Etapa 9 não foi iniciada.

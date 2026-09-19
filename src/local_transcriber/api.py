@@ -16,7 +16,7 @@ from datetime import date, datetime
 from importlib.metadata import version
 from pathlib import Path
 from threading import Event, Thread
-from typing import Annotated, BinaryIO
+from typing import Annotated, Any, BinaryIO
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, File, Form, Header, Query, Request, Response, UploadFile
@@ -28,7 +28,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .config import AppConfig
 from .database import Database
 from .exceptions import RecordingHasActiveJobsError
-from .exporters import ExportFormat, TranscriptExporter
+from .exporters import ExportFormat, TranscriptExporter, render_transcript
 from .media import (
     DuplicateMediaError,
     InvalidMediaError,
@@ -54,6 +54,7 @@ from .models import (
 from .models_manager import ModelManager, ModelNotInstalledError
 from .queueing import TranscriptionQueue, TranscriptionWorker
 from .repository import Repository
+from .summarizer import OllamaUnavailableError, SummaryConfig, TranscriptSummarizer
 from .transcription import CTranslate2RuntimeProbe, EngineFactory, ProfileResolver
 
 PACKAGE_NAME = "local-transcriber"
@@ -224,6 +225,42 @@ class ExportResponse(ApiModel):
     size_bytes: int | None
     sha256: str | None
     created_at: datetime
+
+
+class TimelineEntryResponse(ApiModel):
+    timestamp: str
+    seconds: float
+    topic: str
+    summary: str
+    slide_ref: str | None = None
+
+
+class GlossaryEntryResponse(ApiModel):
+    term: str
+    definition: str
+    first_timestamp: str
+
+
+class FlashcardEntryResponse(ApiModel):
+    id: str
+    question: str
+    answer: str
+    timestamp: str
+
+
+class ExecutiveSummaryResponse(ApiModel):
+    paragraphs: list[str]
+    core_thesis: str
+
+
+class TranscriptSummaryResponse(ApiModel):
+    schema_version: str
+    provenance: dict[str, Any] = Field(default_factory=dict)
+    executive: ExecutiveSummaryResponse
+    timeline: list[TimelineEntryResponse] = Field(default_factory=list)
+    glossary: list[GlossaryEntryResponse] = Field(default_factory=list)
+    flashcards: list[FlashcardEntryResponse] = Field(default_factory=list)
+    spoken_summary: str = ""
 
 
 class _WorkerController:
@@ -753,6 +790,8 @@ def create_app(
     async def domain_error(_request: Request, error: Exception) -> JSONResponse:
         if isinstance(error, KeyError):
             status = 404
+        elif isinstance(error, OllamaUnavailableError):
+            status = 503
         elif isinstance(error, MediaTooLargeError):
             status = 413
         elif isinstance(error, (UnsupportedMediaError, InvalidMediaError)):
@@ -782,6 +821,7 @@ def create_app(
 
     for handled_error in (
         KeyError,
+        OllamaUnavailableError,
         MediaTooLargeError,
         UnsupportedMediaError,
         InvalidMediaError,
@@ -1067,6 +1107,127 @@ def create_app(
             ),
             media_type="text/event-stream",
             headers={"Connection": "keep-alive", "X-Accel-Buffering": "no"},
+        )
+
+    def find_summary_file(transcript_id: str, extension: str) -> Path | None:
+        try:
+            exports_dir = app_config.paths.resolve_relative(f"exports/{transcript_id}")
+        except ValueError:
+            return None
+        if not exports_dir.is_dir():
+            return None
+        expected_path = exports_dir / f"transcript.resumo.{extension}"
+        if expected_path.is_file():
+            return expected_path
+        candidates = sorted(exports_dir.glob(f"*.resumo.{extension}"))
+        return candidates[0] if candidates else None
+
+    def ensure_transcript_source(transcript: Transcript) -> Path:
+        artifacts = repository.list_artifacts(transcript.id)
+        md_artifact = next((a for a in artifacts if a.kind == ExportFormat.MARKDOWN.value), None)
+        if md_artifact is not None:
+            source_path = exporter.exported_path(md_artifact)
+            if not source_path.is_file():
+                source_path.parent.mkdir(parents=True, exist_ok=True)
+                source_path.write_bytes(render_transcript(transcript, ExportFormat.MARKDOWN))
+            return source_path
+        created = exporter.export(transcript, ExportFormat.MARKDOWN)
+        return exporter.exported_path(created)
+
+    @app.get(
+        f"{API_PREFIX}/transcripts/{{transcript_id}}/summary",
+        response_model=TranscriptSummaryResponse,
+    )
+    def get_transcript_summary(transcript_id: str) -> TranscriptSummaryResponse:
+        if repository.get_transcript(transcript_id) is None:
+            raise KeyError("resumo não encontrado")
+        json_path = find_summary_file(transcript_id, "json")
+        if json_path is None or not json_path.is_file():
+            raise KeyError("resumo não encontrado")
+        try:
+            data = json.loads(json_path.read_text(encoding="utf-8"))
+            return TranscriptSummaryResponse(**data)
+        except Exception as err:
+            LOGGER.exception("Falha ao ler o sidecar de resumo em %s", json_path)
+            raise ValueError("arquivo de resumo corrompido ou ilegível") from err
+
+    @app.post(
+        f"{API_PREFIX}/transcripts/{{transcript_id}}/summary",
+        response_model=TranscriptSummaryResponse,
+    )
+    async def generate_transcript_summary(
+        transcript_id: str,
+        request: Request,
+    ) -> TranscriptSummaryResponse:
+        transcript = repository.get_transcript(transcript_id)
+        if transcript is None:
+            raise KeyError("transcript not found")
+
+        payload_kwargs: dict[str, Any] = {}
+        content_type = request.headers.get("content-type", "")
+        if "application/json" in content_type:
+            try:
+                body_bytes = await request.body()
+                if body_bytes:
+                    raw = json.loads(body_bytes)
+                    if isinstance(raw, dict):
+                        if raw.get("model_name"):
+                            payload_kwargs["model_name"] = str(raw["model_name"])
+                        if raw.get("ollama_url"):
+                            payload_kwargs["ollama_url"] = str(raw["ollama_url"])
+                        if raw.get("chunk_duration_minutes"):
+                            payload_kwargs["chunk_duration_minutes"] = int(
+                                raw["chunk_duration_minutes"]
+                            )
+                        if raw.get("timeout"):
+                            payload_kwargs["timeout"] = int(raw["timeout"])
+            except Exception:
+                pass
+
+        source_path = ensure_transcript_source(transcript)
+        config = SummaryConfig(**payload_kwargs) if payload_kwargs else SummaryConfig()
+        summarizer = TranscriptSummarizer(config=config)
+        md_path = summarizer.summarize(source_path, output_dir=source_path.parent)
+
+        stem = md_path.stem[:-7] if md_path.stem.endswith(".resumo") else md_path.stem
+        json_path = md_path.with_name(f"{stem}.resumo.json")
+        if not json_path.is_file():
+            found = find_summary_file(transcript_id, "json")
+            if found is not None and found.is_file():
+                json_path = found
+            else:
+                raise FileNotFoundError("arquivo sidecar .resumo.json não encontrado após geração")
+
+        data = json.loads(json_path.read_text(encoding="utf-8"))
+        return TranscriptSummaryResponse(**data)
+
+    @app.get(f"{API_PREFIX}/transcripts/{{transcript_id}}/summary/download")
+    def download_transcript_summary(
+        transcript_id: str,
+        format: Annotated[str, Query(pattern="^(md|json)$")] = "md",
+    ) -> FileResponse:
+        if repository.get_transcript(transcript_id) is None:
+            raise KeyError("resumo não encontrado")
+
+        if format == "json":
+            file_path = find_summary_file(transcript_id, "json")
+            media_type = "application/json; charset=utf-8"
+            filename = f"transcript_{transcript_id}.resumo.json"
+        elif format == "md":
+            file_path = find_summary_file(transcript_id, "md")
+            media_type = "text/markdown; charset=utf-8"
+            filename = f"transcript_{transcript_id}.resumo.md"
+        else:
+            raise ValueError("formato inválido, utilize 'md' ou 'json'")
+
+        if file_path is None or not file_path.is_file():
+            raise KeyError("resumo não encontrado")
+
+        return FileResponse(
+            file_path,
+            media_type=media_type,
+            filename=filename,
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
 
     return app

@@ -249,6 +249,104 @@
               Seu navegador não consegue reproduzir esta mídia.
             </audio>
             <div id="transcript-metrics" class="metrics-strip"></div>
+            <section id="summary-section" class="data-panel summary-panel" aria-labelledby="summary-heading">
+              <header class="summary-panel-header">
+                <div class="summary-title-group">
+                  <p class="eyebrow">Síntese com IA Local</p>
+                  <h3 id="summary-heading">Resumo Estruturado &amp; Estudo</h3>
+                </div>
+                <div class="summary-actions">
+                  <div id="summary-status-indicator" class="summary-status" role="status" aria-live="polite" hidden>
+                    <span class="summary-spinner" aria-hidden="true"></span>
+                    <span id="summary-status-text">Processando via Ollama…</span>
+                  </div>
+                  <button id="btn-generate-summary" class="button button-secondary" type="button">
+                    <span class="button-icon" aria-hidden="true">⚡</span>
+                    <span id="btn-generate-summary-text">Gerar Resumo com Ollama</span>
+                  </button>
+                  <div id="summary-download-group" class="summary-download-group" hidden>
+                    <a id="btn-download-summary-md" class="button button-quiet" href="#" download="resumo.md" title="Baixar resumo estruturado em Markdown">
+                      <span aria-hidden="true">↓</span> Baixar Resumo (.md)
+                    </a>
+                    <a id="btn-download-summary-json" class="button button-quiet" href="#" download="resumo.json" title="Baixar sidecar estruturado em JSON">
+                      <span aria-hidden="true">↓</span> Baixar Sidecar (.json)
+                    </a>
+                  </div>
+                </div>
+              </header>
+
+              <div id="summary-empty-state" class="summary-empty">
+                <div class="empty-state-icon" aria-hidden="true">🧠</div>
+                <div class="empty-state-copy">
+                  <strong>Nenhum resumo gerado para esta gravação</strong>
+                  <p>Gere uma síntese pedagógica com tese central, roteiro falado, glossário e flashcards interativos usando o Ollama local.</p>
+                </div>
+              </div>
+
+              <div id="summary-content" class="summary-content" hidden>
+                <article class="thesis-card" aria-labelledby="thesis-title">
+                  <div class="thesis-badge-row">
+                    <span id="thesis-title" class="thesis-badge">Tese Central</span>
+                    <span id="summary-model-badge" class="model-badge">qwen2.5:3b</span>
+                  </div>
+                  <blockquote id="summary-core-thesis" class="thesis-quote"></blockquote>
+                </article>
+
+                <section class="summary-subpanel" aria-labelledby="executive-summary-title">
+                  <h4 id="executive-summary-title" class="subpanel-title">
+                    <span class="subpanel-icon" aria-hidden="true">📋</span> Resumo Executivo
+                  </h4>
+                  <div id="summary-executive-paragraphs" class="executive-paragraphs"></div>
+                </section>
+
+                <section class="summary-subpanel spoken-script-panel" aria-labelledby="spoken-script-title">
+                  <div class="subpanel-header-row">
+                    <h4 id="spoken-script-title" class="subpanel-title">
+                      <span class="subpanel-icon" aria-hidden="true">🎙️</span> Roteiro Falado (Podcast)
+                    </h4>
+                    <button id="btn-copy-spoken" class="button button-quiet button-sm" type="button" title="Copiar roteiro falado">
+                      <span aria-hidden="true">📄</span> Copiar Roteiro
+                    </button>
+                  </div>
+                  <div id="summary-spoken-text" class="spoken-script-body"></div>
+                </section>
+
+                <section class="summary-subpanel" aria-labelledby="glossary-title">
+                  <div class="summary-header-row subpanel-header-row">
+                    <h4 id="glossary-title" class="subpanel-title">
+                      <span class="subpanel-icon" aria-hidden="true">📖</span> Glossário Técnico
+                    </h4>
+                    <span id="glossary-count" class="count-badge">0 termos</span>
+                  </div>
+                  <div class="table-wrap glossary-table-wrap">
+                    <table class="glossary-table">
+                      <caption class="sr-only">Termos e conceitos técnicos identificados na aula</caption>
+                      <thead>
+                        <tr>
+                          <th scope="col" class="col-timestamp">Timestamp</th>
+                          <th scope="col" class="col-term">Termo / Conceito</th>
+                          <th scope="col" class="col-definition">Definição Pedagógica</th>
+                        </tr>
+                      </thead>
+                      <tbody id="summary-glossary-body"></tbody>
+                    </table>
+                  </div>
+                </section>
+
+                <section class="summary-subpanel" aria-labelledby="flashcards-title">
+                  <div class="summary-header-row subpanel-header-row">
+                    <h4 id="flashcards-title" class="subpanel-title">
+                      <span class="subpanel-icon" aria-hidden="true">🗂️</span> Flashcards de Fixação
+                    </h4>
+                    <span id="flashcards-count" class="count-badge">0 cards</span>
+                  </div>
+                  <p class="flashcards-hint">
+                    Teste sua retenção ativa. Clique no botão de cada card para revelar a resposta explicativa.
+                  </p>
+                  <div id="summary-flashcards-grid" class="flashcards-grid" role="list"></div>
+                </section>
+              </div>
+            </section>
             <div class="reader-layout">
               <section class="data-panel transcript-text" aria-labelledby="texto-integral-heading">
                 <h3 id="texto-integral-heading">Texto integral</h3>

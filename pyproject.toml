@@ -21,6 +21,7 @@ dependencies = [
 
 [project.scripts]
 local-transcriber = "local_transcriber.cli:main"
+local-transcriber-summarize = "local_transcriber.summarizer:main"
 
 [project.optional-dependencies]
 dev = [
