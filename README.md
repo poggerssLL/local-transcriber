@@ -300,3 +300,8 @@ gabarito independente.
   evidência ponta a ponta local, limites da amostra e iniciador supervisionado.
 - [Aceleração CUDA local 7B](docs/PHASE_07B_LOCAL_CUDA_ACCELERATION.md): descoberta local
   das DLLs, validação CUDA, proteção da fila durante exclusão e limitações restantes.
+
+Manutenção 8C: 142 testes Python, Ruff global e format --check aprovados. Testes
+da fila separam contagem de retries de expiração com relógio controlado.
+Versão/schema preservados; nenhuma inferência real nova.
+[Relatório](docs/PHASE_08C_STYLE_AND_HEARTBEAT_TESTS_2026-10-05.md).

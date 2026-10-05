@@ -15,11 +15,13 @@ de IA em nuvem. A versão atual é `0.7.1`, usa schema SQLite v4 e concluiu:
 4. fila persistente e worker local;
 5. API FastAPI local e eventos SSE persistentes;
 6. interface web local em HTML, CSS e JavaScript;
-7. integração e validação real do MVP.
-7B. aceleração CUDA local e resiliência da fila durante exclusão.
+7. integração e validação real do MVP;
+7B. aceleração CUDA local e resiliência da fila durante exclusão;
+8. resumo estruturado com Ollama local e integração web completa;
+8B. manutenção de baseline e validação estática factual;
+8C. estilo e separação dos testes de retries/expiração.
 
-A futura Etapa 8 não foi iniciada. Diarização, Ollama, microfone ao vivo e Home Assistant
-ainda não foram implementados.
+As futuras etapas de diarização, transcrição contínua em tempo real e integração com Home Assistant não foram iniciadas.
 
 ## Estrutura do repositório
 
@@ -50,6 +52,7 @@ Local Transcriber/
 │   ├── transcription.py
 │   ├── queueing.py
 │   ├── api.py
+│   ├── summarizer.py
 │   ├── web/
 │   │   ├── index.html
 │   │   ├── styles.css
@@ -78,6 +81,7 @@ O pacote usa layout `src/`, Python 3.11 ou superior e um único entrypoint insta
 - `transcription.py`: abstrai o engine, resolve perfis e coordena a transcrição.
 - `queueing.py`: enfileira trabalhos e executa o worker local sequencial com leases.
 - `api.py`: define os contratos `/api`, segurança HTTP, streaming, SSE e lifespan.
+- `summarizer.py`: implementa a sumarização pedagógica estruturada via Ollama local com Map-Reduce temporal, geração de sidecars `.resumo.md` e `.resumo.json` e callbacks resilientes de progresso.
 - `web/`: implementa a interface sem build, com assets locais e consumo seguro da API.
 - `cli.py`: expõe os serviços existentes sem duplicar regras de negócio.
 - `scripts/start-local-transcriber.ps1`: inicia o entrypoint instalado em primeiro plano,
@@ -304,7 +308,8 @@ processo supervisionado com `Ctrl+C`.
 
 Os contratos ficam sob `/api` e incluem saúde, versão, capacidades, matérias, gravações,
 pesquisa FTS5, modelos instalados, runtime, jobs, transcrições, segmentos, palavras,
-exportações, mídia e eventos. A especificação OpenAPI JSON local fica em
+exportações, mídia, eventos e sumarização estruturada (`GET|POST /api/transcripts/{id}/summary`,
+progresso e download nos formatos Markdown e JSON). A especificação OpenAPI JSON local fica em
 `/api/openapi.json`. Swagger UI, ReDoc e outros visualizadores HTML não são expostos,
 porque a versão padrão dependeria de CDN e conflitaria com a operação offline. Os modelos
 de resposta omitem caminhos físicos, caminho relativo interno da mídia, identificador do
@@ -399,8 +404,11 @@ job deixa o snapshot da biblioteca.
 
 A leitura usa o endpoint controlado de mídia, aceita seek por timestamps clicáveis e
 apresenta texto integral, idioma, métricas, segmentos e probabilidades somente quando
-existem. Exportações nos cinco formatos podem ser criadas e baixadas pelos IDs gerenciados.
-O suporte concreto de reprodução ainda depende dos codecs do navegador.
+existem. Ela integra também o painel de síntese pedagógica com Ollama local (tese central,
+resumo executivo, roteiro falado com cópia, glossário com sincronização de timestamps no player,
+flashcards interativos e download direto de resumos em Markdown e JSON). Exportações nos cinco
+formatos podem ser criadas e baixadas pelos IDs gerenciados. O suporte concreto de reprodução ainda
+depende dos codecs do navegador.
 
 Dados recebidos da API são inseridos com `textContent`, atributos controlados e criação
 explícita de elementos. A implementação não usa `innerHTML`, `outerHTML`,
@@ -417,8 +425,8 @@ overflow horizontal da página.
 
 ### Automatizada e com doubles
 
-A suíte de 115 testes Python e 11 testes JavaScript comportamentais funciona sem GPU,
-modelo ou rede. Ela cobre configuração, domínio,
+Historicamente, a baseline consolidada incluiu 115 testes Python e 11 testes JavaScript
+comportamentais funcionais sem GPU, modelo ou rede. Essa base cobre configuração, domínio,
 migrações v1–v4, mídia sintética, pesquisa, exportadores, perfis, ausência de download
 automático, backend injetado, consumo lazy, reivindicação concorrente, leases, recuperação,
 cancelamento, retry, progresso, publicação idempotente, falhas transacionais, recuperação
@@ -433,6 +441,16 @@ cobrem cargas globais fora de ordem, leituras e pesquisas concorrentes, exporta�
 troca de leitura, erros obsoletos, duplicação e regressão SSE, replay inicial, reconexão,
 listener encerrado e jobs simultâneos. Esses testes validam comportamento determinístico,
 não qualidade de inferência.
+
+Com a conclusão da Etapa 8 e a manutenção da Etapa 8B, a suíte de testes Python foi expandida
+para 141 testes (adicionando 26 testes para o módulo e as rotas de sumarização estruturada
+utilizando mocks e fixtures locais, sem garantia de rede monitorada no nível do sistema operacional).
+Os 11 testes JavaScript comportamentais históricos não foram reexecutados nesta intervenção de
+manutenção; em seu lugar, a verificação estática de JavaScript foi realizada pela execução
+individual de `node --check` em cada um dos 4 arquivos JS da aplicação web, todos concluídos com
+código de saída 0. A validação de baseline registrou 10 advertências pré-existentes de Ruff E501
+e 4 arquivos com diferenças de formatação mantidos inalterados nos oito arquivos restritos da etapa,
+além de uma falha inicial seguida de retries efetivos em teste intermitente de retries de heartbeat.
 
 As regressões 5C verificam que fila vazia não abre transação imediata, upload concorre com
 polling ocioso sem locks de escritor, um job criado após pré-consulta vazia é encontrado no
@@ -499,7 +517,7 @@ horas confirma ausência de timeout artificial no domínio, não desempenho de c
 - a seleção atual da leitura não persiste após recarregar a página;
 - shutdown pode aguardar uma operação indivisível do engine;
 - SSE detecta eventos por consultas SQLite curtas e possui pequena latência de entrega;
-- diarização, Ollama, microfone ao vivo e Home Assistant permanecem fora do MVP.
+- diarização, microfone ao vivo e Home Assistant permanecem fora do MVP; a sumarização com Ollama local opera exclusivamente em localhost.
 
 Consulte [estado atual](PROJECT_STATE.md), [decisões](DECISIONS.md),
 [problemas conhecidos](KNOWN_ISSUES.md), [roadmap](ROADMAP.md) e os relatórios
@@ -512,5 +530,21 @@ Consulte [estado atual](PROJECT_STATE.md), [decisões](DECISIONS.md),
 [correção complementar 5B](PHASE_05B_OFFLINE_DOCS_AND_INCREMENTAL_SSE.md) e
 [Etapa 6](PHASE_06_WEB_INTERFACE.md) e
 [correção complementar 5C](PHASE_05C_SQLITE_CONTENTION_RELIABILITY.md) e
-[correção complementar 6B](PHASE_06B_ASYNC_CONCURRENCY_RELIABILITY.md) e
-[correção complementar 7B](PHASE_07B_LOCAL_CUDA_ACCELERATION.md).
+[correção complementar 6B](PHASE_06B_ASYNC_CONCURRENCY_RELIABILITY.md),
+[Etapa 7](PHASE_07_MVP_INTEGRATION_AND_REAL_VALIDATION.md),
+[correção complementar 7B](PHASE_07B_LOCAL_CUDA_ACCELERATION.md),
+[Etapa 8](PHASE_08_STRUCTURED_SUMMARIZER_AND_WEB_INTEGRATION.md) e
+[manutenção e validação de baseline 8B](PHASE_08B_MAINTENANCE_VALIDATION_2026-10-05.md).
+
+## Manutenção 8C (2026-10-05)
+
+142 testes Python aprovados no checkout isolado; Ruff check global aprovado e
+28 arquivos com format --check aprovado. AST funcional preservada nos quatro
+arquivos de estilo (três docstrings de testes apenas refluídas). Teste de retries
+usa FakeClock estável; regressão separada avança o relógio e prova perda de lease
+antes de retry inseguro. O código de produção da fila não mudou. Resultados 8B
+acima são históricos; as pendências de estilo foram resolvidas na 8C.
+Compilação de sintaxe e diff-check aprovados; pip check sem dependências quebradas,
+com aviso de distribuição inválida no ambiente existente, não reparado.
+Sem inferência real, modelos, mídia pessoal ou download nesta manutenção.
+[Relatório 8C](PHASE_08C_STYLE_AND_HEARTBEAT_TESTS_2026-10-05.md).

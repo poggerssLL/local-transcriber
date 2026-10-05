@@ -9,6 +9,8 @@
 7. Integração e validação real — concluída.
 7B. Aceleração CUDA local e resiliência operacional da fila — concluída.
 8. Resumo Estruturado com Ollama local e integração web completa — concluída.
+8B. Manutenção de baseline, validação estática e consolidação factual — concluída.
+8C. Estilo e separação dos testes de retries/expiração — concluída; publicação conjunta com Etapa 8/8B autorizada em 2026-10-05.
 9. Futuras fases de diarização, tempo real contínuo e Home Assistant — não iniciadas.
 
 Após a Etapa 3, duas validações reais antecipadas confirmaram o fluxo CPU `int8` com
@@ -63,4 +65,23 @@ painel interativo de leitura (tese central, resumo executivo, roteiro de podcast
 glossário com sincronização de timestamps no player de mídia, flashcards com revelação
 ativa e downloads diretos de resumo). Foram adicionados 19 testes automatizados com mocks
 (totalizando 134 testes aprovados no repositório). A política de privacidade, execução offline
-e imutabilidade dos arquivos originais permanece integralmente respeitada. Etapa 9 não foi iniciada.
+e imutabilidade dos arquivos originais permanece integralmente respeitada.
+
+A Etapa 8B realizou a manutenção e consolidação factual da baseline após a Etapa 8.
+A suíte completa atingiu 141 testes Python aprovados (26 testes no módulo e rotas de resumo),
+sintaxe JavaScript e compilação Python íntegras, dependências validadas pelo `pip check` e
+hashes SHA-256 preservados nos oito arquivos pré-existentes da etapa. Foram registradas
+as 10 advertências Ruff E501 e diferenças de formatação confinadas aos arquivos pré-existentes,
+bem como a sensibilidade transitória intermitente observada no teste de retries de heartbeat
+em `tests/test_queue.py` (falha na primeira execução e retries efetivos com causa desconhecida).
+As contradições documentais sobre a presença do Ollama local no escopo foram saneadas sem
+relaxamento de privacidade ou segurança. Etapa 9 não foi iniciada.
+
+## Manutenção 8C
+
+142 testes aprovados, Ruff global e formatação aprovados. Clock controlado no
+teste de retries e regressão separada da margem expirada; nenhuma alteração
+no heartbeat de produção ou no schema. A dívida de estilo da 8B foi resolvida;
+a causa histórica da falha intermitente não foi inferida. Aviso pip de distribuição
+inválida permanece, sem repair/install. Etapas futuras não iniciadas.
+[Relatório 8C](PHASE_08C_STYLE_AND_HEARTBEAT_TESTS_2026-10-05.md).

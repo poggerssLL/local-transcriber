@@ -147,6 +147,117 @@ export class LocalApi {
     });
   }
 
+  summaryProgress(transcriptId, options = {}) {
+    return this.request(`/transcripts/${encodeURIComponent(transcriptId)}/summary/progress`, options);
+  }
+
+  async streamSummary(transcriptId, onProgress, options = {}) {
+    const {
+      payload = {},
+      signal,
+      headers: customHeaders,
+      ...restOptions
+    } = options;
+
+    const headers = new Headers(customHeaders || {});
+    headers.set("Accept", "text/event-stream");
+    if (payload && !(payload instanceof FormData)) {
+      headers.set("Content-Type", "application/json");
+    }
+
+    let response;
+    try {
+      response = await fetch(
+        `${API_ROOT}/transcripts/${encodeURIComponent(transcriptId)}/summary?stream=true`,
+        {
+          method: "POST",
+          headers,
+          credentials: "same-origin",
+          signal,
+          body: JSON.stringify(payload),
+          ...restOptions,
+        },
+      );
+    } catch (error) {
+      if (error && typeof error === "object" && error.name === "AbortError") {
+        throw error;
+      }
+      window.dispatchEvent(new Event("local-api-offline"));
+      throw new ApiError("Não foi possível acessar o serviço local.");
+    }
+
+    window.dispatchEvent(new Event("local-api-online"));
+
+    if (!response.ok) {
+      throw new ApiError(await readError(response), response.status);
+    }
+
+    if (!response.body) {
+      throw new ApiError("A resposta não suporta streaming.");
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buffer = "";
+    let finalSummary = null;
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+
+        buffer += decoder.decode(value, { stream: true });
+
+        let boundaryIndex;
+        while ((boundaryIndex = buffer.search(/\r?\n\r?\n/)) !== -1) {
+          const rawBlock = buffer.slice(0, boundaryIndex);
+          const match = buffer.match(/\r?\n\r?\n/);
+          buffer = buffer.slice(boundaryIndex + match[0].length);
+
+          if (!rawBlock.trim()) {
+            continue;
+          }
+
+          let eventType = "message";
+          const dataLines = [];
+
+          for (const line of rawBlock.split(/\r?\n/)) {
+            if (line.startsWith(":")) {
+              continue;
+            }
+            if (line.startsWith("event:")) {
+              eventType = line.slice(6).trim();
+            } else if (line.startsWith("data:")) {
+              dataLines.push(line.slice(5).trimStart());
+            }
+          }
+
+          if (dataLines.length > 0) {
+            const rawData = dataLines.join("\n");
+            let parsedData = rawData;
+            try {
+              parsedData = JSON.parse(rawData);
+            } catch (_err) {}
+
+            if (eventType === "complete") {
+              finalSummary = (parsedData && parsedData.summary) || parsedData;
+            }
+
+            if (typeof onProgress === "function") {
+              onProgress({ event: eventType, data: parsedData });
+            }
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+
+    return finalSummary;
+  }
+
   summaryDownloadUrl(transcriptId, format = "md") {
     return `${API_ROOT}/transcripts/${encodeURIComponent(transcriptId)}/summary/download?format=${encodeURIComponent(format)}`;
   }

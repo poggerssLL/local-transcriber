@@ -29,7 +29,7 @@ def test_models_instantiation() -> None:
     assert config.ollama_url == "http://127.0.0.1:11434"
     assert config.model_name == "qwen2.5:3b"
     assert config.chunk_duration_minutes == 20
-    assert config.timeout == 120
+    assert config.timeout == 600
 
     tl = TimelineEntry(
         timestamp="00:15:30",
@@ -228,75 +228,81 @@ def test_summarize_end_to_end_mocked() -> None:
         )
 
         # Mock Ollama map responses and reduce response
-        map_response_chunk1 = json.dumps({
-            "chunk_summary": "Introdução teórica às leis de Newton e modelagem.",
-            "timeline": [
-                {
-                    "timestamp": "00:00:10",
-                    "seconds": 10.0,
-                    "topic": "Fundamentos de Modelagem",
-                    "summary": "Conceituação de sistemas concentrados.",
-                    "slide_ref": "Slide 1",
-                },
-                {
-                    "timestamp": "00:15:00",
-                    "seconds": 900.0,
-                    "topic": "2ª Lei de Newton",
-                    "summary": "Diagrama de corpo livre e forças atuantes.",
-                    "slide_ref": "Slide 5",
-                },
-            ],
-            "glossary": [
-                {
-                    "term": "Diagrama de Corpo Livre",
-                    "definition": "Representação gráfica de todas as forças atuando no corpo.",
-                    "first_timestamp": "00:15:00",
-                }
-            ],
-            "flashcards": [
-                {
-                    "question": "Qual é o primeiro passo para modelar um sistema mecânico?",
-                    "answer": "Identificar os graus de liberdade e traçar o diagrama.",
-                    "timestamp": "00:15:00",
-                }
-            ],
-        })
+        map_response_chunk1 = json.dumps(
+            {
+                "chunk_summary": "Introdução teórica às leis de Newton e modelagem.",
+                "timeline": [
+                    {
+                        "timestamp": "00:00:10",
+                        "seconds": 10.0,
+                        "topic": "Fundamentos de Modelagem",
+                        "summary": "Conceituação de sistemas concentrados.",
+                        "slide_ref": "Slide 1",
+                    },
+                    {
+                        "timestamp": "00:15:00",
+                        "seconds": 900.0,
+                        "topic": "2ª Lei de Newton",
+                        "summary": "Diagrama de corpo livre e forças atuantes.",
+                        "slide_ref": "Slide 5",
+                    },
+                ],
+                "glossary": [
+                    {
+                        "term": "Diagrama de Corpo Livre",
+                        "definition": "Representação gráfica de todas as forças atuando no corpo.",
+                        "first_timestamp": "00:15:00",
+                    }
+                ],
+                "flashcards": [
+                    {
+                        "question": "Qual é o primeiro passo para modelar um sistema mecânico?",
+                        "answer": "Identificar os graus de liberdade e traçar o diagrama.",
+                        "timestamp": "00:15:00",
+                    }
+                ],
+            }
+        )
 
-        map_response_chunk2 = json.dumps({
-            "chunk_summary": "Dedução das equações diferenciais e amortecimento.",
-            "timeline": [
-                {
-                    "timestamp": "00:30:00",
-                    "seconds": 1800.0,
-                    "topic": "Amortecimento Viscoso",
-                    "summary": "Aplicação do coeficiente e obtenção da EDO.",
-                    "slide_ref": "Slide 10",
-                }
-            ],
-            "glossary": [
-                {
-                    "term": "Amortecedor Viscoso",
-                    "definition": "Elemento que dissipa energia pela velocidade relativa.",
-                    "first_timestamp": "00:30:00",
-                }
-            ],
-            "flashcards": [
-                {
-                    "question": "Como se relaciona a força com a velocidade?",
-                    "answer": "A força é proporcional à velocidade relativa (F = c * v).",
-                    "timestamp": "00:30:00",
-                }
-            ],
-        })
+        map_response_chunk2 = json.dumps(
+            {
+                "chunk_summary": "Dedução das equações diferenciais e amortecimento.",
+                "timeline": [
+                    {
+                        "timestamp": "00:30:00",
+                        "seconds": 1800.0,
+                        "topic": "Amortecimento Viscoso",
+                        "summary": "Aplicação do coeficiente e obtenção da EDO.",
+                        "slide_ref": "Slide 10",
+                    }
+                ],
+                "glossary": [
+                    {
+                        "term": "Amortecedor Viscoso",
+                        "definition": "Elemento que dissipa energia pela velocidade relativa.",
+                        "first_timestamp": "00:30:00",
+                    }
+                ],
+                "flashcards": [
+                    {
+                        "question": "Como se relaciona a força com a velocidade?",
+                        "answer": "A força é proporcional à velocidade relativa (F = c * v).",
+                        "timestamp": "00:30:00",
+                    }
+                ],
+            }
+        )
 
-        reduce_response = json.dumps({
-            "core_thesis": "A modelagem matemática rigorosa parte do isolamento de corpos.",
-            "paragraphs": [
-                "A aula estabeleceu os princípios fundamentais da dinâmica aplicada.",
-                "Foi demonstrado passo a passo como converter interações físicas em EDOs.",
-            ],
-            "spoken_summary": "Olá! Nesta sessão abordamos a modelagem mecânica clássica.",
-        })
+        reduce_response = json.dumps(
+            {
+                "core_thesis": "A modelagem matemática rigorosa parte do isolamento de corpos.",
+                "paragraphs": [
+                    "A aula estabeleceu os princípios fundamentais da dinâmica aplicada.",
+                    "Foi demonstrado passo a passo como converter interações físicas em EDOs.",
+                ],
+                "spoken_summary": "Olá! Nesta sessão abordamos a modelagem mecânica clássica.",
+            }
+        )
 
         summarizer = TranscriptSummarizer(SummaryConfig(chunk_duration_minutes=20))
 
@@ -362,3 +368,109 @@ def test_cli_execution() -> None:
         # Test CLI error when file does not exist
         exit_code_missing = main([str(tmp_path / "nonexistent.md")])
         assert exit_code_missing == 1
+
+
+def test_summarize_progress_callback_emits_all_phases() -> None:
+    """Validate that progress_callback receives all expected phases in order with accurate data."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        source_file = tmp_path / "aula_progress.transcription.md"
+        source_file.write_text(
+            """# Aula Teste Progresso
+## Segmentos
+- `00:00:10.000` Introdução ao assunto.
+- `00:25:00.000` Segunda parte do assunto (novo chunk).
+""",
+            encoding="utf-8",
+        )
+
+        dummy_map_response = json.dumps(
+            {
+                "chunk_summary": "Resumo de teste.",
+                "timeline": [{"timestamp": "00:00:10", "topic": "Intro", "summary": "Detalhes"}],
+                "glossary": [
+                    {"term": "Termo", "definition": "Definicao", "first_timestamp": "00:00:10"}
+                ],
+                "flashcards": [{"id": "card-01", "question": "Pergunta?", "answer": "Resposta."}],
+            }
+        )
+        dummy_reduce_response = json.dumps(
+            {
+                "executive_summary": "Resumo executivo completo.",
+                "core_thesis": "Tese central testada.",
+                "spoken_summary": "Podcast testado.",
+            }
+        )
+
+        events: list[dict] = []
+
+        def callback(event: dict) -> None:
+            events.append(event)
+
+        summarizer = TranscriptSummarizer(SummaryConfig(chunk_duration_minutes=20))
+        with patch.object(summarizer, "_call_ollama") as mock_ollama:
+            mock_ollama.side_effect = [
+                dummy_map_response,  # chunk 1 map
+                dummy_map_response,  # chunk 2 map
+                dummy_reduce_response,  # reduce synthesis
+            ]
+            md_path = summarizer.summarize(source_file, progress_callback=callback)
+
+        assert md_path.exists()
+        phases = [e["phase"] for e in events]
+        assert phases == ["parsing", "chunking", "map", "map", "reduce", "persisting", "completed"]
+
+        # Check parsing event
+        assert events[0]["progress_percent"] == 5
+
+        # Check chunking event
+        assert events[1]["progress_percent"] == 10
+        assert events[1]["chunk_total"] == 2
+
+        # Check map events
+        assert events[2]["chunk_current"] == 1
+        assert events[2]["chunk_total"] == 2
+        assert events[2]["progress_percent"] == 10 + int(70 * (1 / 2))  # 45%
+
+        assert events[3]["chunk_current"] == 2
+        assert events[3]["chunk_total"] == 2
+        assert events[3]["progress_percent"] == 10 + int(70 * (2 / 2))  # 80%
+
+        # Check reduce, persisting, completed
+        assert events[4]["progress_percent"] == 85
+        assert events[5]["progress_percent"] == 95
+        assert events[6]["progress_percent"] == 100
+
+
+def test_summarize_progress_callback_exception_tolerance() -> None:
+    """Ensure that an exception inside progress_callback does not disrupt summarization."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        source_file = tmp_path / "aula_fail_cb.transcription.md"
+        source_file.write_text("- `00:00:10.000` Teste tolerância a erro", encoding="utf-8")
+
+        dummy_map_response = json.dumps(
+            {
+                "chunk_summary": "Resumo.",
+                "timeline": [],
+                "glossary": [],
+                "flashcards": [],
+            }
+        )
+        dummy_reduce_response = json.dumps(
+            {
+                "executive_summary": "Resumo.",
+                "core_thesis": "Tese.",
+                "spoken_summary": "Falado.",
+            }
+        )
+
+        def faulty_callback(event: dict) -> None:
+            raise RuntimeError("Falha proposital no callback")
+
+        summarizer = TranscriptSummarizer()
+        with patch.object(summarizer, "_call_ollama") as mock_ollama:
+            mock_ollama.side_effect = [dummy_map_response, dummy_reduce_response]
+            # Must succeed despite callback errors
+            md_path = summarizer.summarize(source_file, progress_callback=faulty_callback)
+            assert md_path.exists()

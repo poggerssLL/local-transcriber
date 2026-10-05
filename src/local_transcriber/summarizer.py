@@ -13,6 +13,7 @@ import re
 import sys
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -28,9 +29,7 @@ _TIMESTAMP_LINE_RE = re.compile(
     r"[:\s-]*(.*)$"
 )
 
-_INLINE_TIMESTAMP_RE = re.compile(
-    r"(?:\[|`|\()(\d{1,2}:\d{2}:\d{2}(?:[.,]\d+)?)(?:\]|`|\))"
-)
+_INLINE_TIMESTAMP_RE = re.compile(r"(?:\[|`|\()(\d{1,2}:\d{2}:\d{2}(?:[.,]\d+)?)(?:\]|`|\))")
 
 
 class OllamaUnavailableError(RuntimeError):
@@ -44,7 +43,7 @@ class SummaryConfig:
     ollama_url: str = "http://127.0.0.1:11434"
     model_name: str = "qwen2.5:3b"
     chunk_duration_minutes: int = 20
-    timeout: int = 120
+    timeout: int = 600
     temperature: float = 0.2
 
     def __post_init__(self) -> None:
@@ -259,10 +258,10 @@ class TranscriptSummarizer:
                 raise FileNotFoundError(f"Transcript file not found: {text_or_path}")
             raw_text = text_or_path.read_text(encoding="utf-8")
         elif isinstance(text_or_path, str):
-            is_potential_path = (
-                "\n" not in text_or_path
-                and ("/" in text_or_path or "\\" in text_or_path
-                     or text_or_path.endswith((".md", ".txt", ".srt", ".vtt", ".json")))
+            is_potential_path = "\n" not in text_or_path and (
+                "/" in text_or_path
+                or "\\" in text_or_path
+                or text_or_path.endswith((".md", ".txt", ".srt", ".vtt", ".json"))
             )
             if is_potential_path:
                 path = Path(text_or_path)
@@ -346,10 +345,7 @@ class TranscriptSummarizer:
                     raw_ts = inline_match.group(1)
                     sec = parse_timestamp_seconds(raw_ts)
                     clock_ts = format_timestamp_clock(sec)
-                    text_part = (
-                        line_str[: inline_match.start()]
-                        + line_str[inline_match.end() :]
-                    )
+                    text_part = line_str[: inline_match.start()] + line_str[inline_match.end() :]
                     flush_current()
                     current_ts = clock_ts
                     current_sec = sec
@@ -363,13 +359,11 @@ class TranscriptSummarizer:
         # Fallback if no timestamps were detected in raw content
         if not segments_list:
             paragraphs = [
-                p.strip() for p in raw_text.split("\n\n")
-                if p.strip() and not p.startswith("#")
+                p.strip() for p in raw_text.split("\n\n") if p.strip() and not p.startswith("#")
             ]
             if not paragraphs:
                 paragraphs = [
-                    p.strip() for p in raw_text.splitlines()
-                    if p.strip() and not p.startswith("#")
+                    p.strip() for p in raw_text.splitlines() if p.strip() and not p.startswith("#")
                 ]
 
             simulated_sec = 0.0
@@ -395,8 +389,7 @@ class TranscriptSummarizer:
             return []
 
         limit_minutes = (
-            max_minutes if max_minutes is not None
-            else self.config.chunk_duration_minutes
+            max_minutes if max_minutes is not None else self.config.chunk_duration_minutes
         )
         if limit_minutes <= 0:
             raise ValueError("chunk_duration_minutes must be positive")
@@ -589,18 +582,12 @@ class TranscriptSummarizer:
             "'core_thesis', 'paragraphs', 'spoken_summary'."
         )
 
-        timeline_topics = [
-            f"- [{t.timestamp}] {t.topic}: {t.summary}"
-            for t in all_timeline[:20]
-        ]
-        glossary_terms = [
-            f"- {g.term}: {g.definition}"
-            for g in all_glossary[:15]
-        ]
+        timeline_topics = [f"- [{t.timestamp}] {t.topic}: {t.summary}" for t in all_timeline[:20]]
+        glossary_terms = [f"- {g.term}: {g.definition}" for g in all_glossary[:15]]
 
         prompt = (
             "--- RESUMO DOS BLOCOS CRONOLÓGICOS ---\n"
-            + "\n".join(f"Bloco {i+1}: {s}" for i, s in enumerate(chunk_summaries))
+            + "\n".join(f"Bloco {i + 1}: {s}" for i, s in enumerate(chunk_summaries))
             + "\n\n--- PRINCIPAIS MARCOS DA LINHA DO TEMPO ---\n"
             + "\n".join(timeline_topics)
             + "\n\n--- PRINCIPAIS TERMOS DO GLOSSÁRIO ---\n"
@@ -620,15 +607,10 @@ class TranscriptSummarizer:
                 paras = [str(p).strip() for p in raw_paras if str(p).strip()]
 
             if not paras:
-                paras = (
-                    chunk_summaries if chunk_summaries
-                    else ["Conteúdo analisado com sucesso."]
-                )
+                paras = chunk_summaries if chunk_summaries else ["Conteúdo analisado com sucesso."]
 
             spoken = str(
-                data.get("spoken_summary")
-                or data.get("resumo_falado")
-                or " ".join(paras)
+                data.get("spoken_summary") or data.get("resumo_falado") or " ".join(paras)
             ).strip()
 
             return ExecutiveSummary(paragraphs=paras, core_thesis=thesis), spoken
@@ -638,12 +620,26 @@ class TranscriptSummarizer:
             spoken = " ".join(paras)
             return ExecutiveSummary(paragraphs=paras, core_thesis=thesis), spoken
 
-    def summarize(self, source_path: Path, output_dir: Path | None = None) -> Path:
+    def summarize(
+        self,
+        source_path: Path,
+        output_dir: Path | None = None,
+        progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    ) -> Path:
         """Execute temporal Map-Reduce summarization pipeline for a transcript file.
 
         Outputs '<basename>.resumo.md' and '<basename>.resumo.json' sidecar file.
         Returns the Path to the generated Markdown file.
+        Optionally reports progress to 'progress_callback' at each phase transition.
         """
+
+        def _notify(event_data: dict[str, Any]) -> None:
+            if progress_callback is not None:
+                try:
+                    progress_callback(event_data)
+                except Exception:
+                    logger.exception("Falha ao invocar progress_callback de sumarização")
+
         source_path = Path(source_path)
         if not source_path.is_file():
             raise FileNotFoundError(f"Arquivo de transcrição não encontrado: {source_path}")
@@ -663,12 +659,31 @@ class TranscriptSummarizer:
         json_path = out_dir / f"{base_name}.resumo.json"
 
         # Step 1: Parse
+        _notify(
+            {
+                "phase": "parsing",
+                "progress_percent": 5,
+                "message": "Lendo e segmentando a transcrição...",
+            }
+        )
         segments = self.parse_transcript(source_path)
         if not segments:
             raise ValueError(f"Não foi possível extrair segmentos de: {source_path}")
 
         # Step 2: Temporal Chunking
         chunks = self.chunk_by_time(segments, max_minutes=self.config.chunk_duration_minutes)
+        chunk_count = len(chunks)
+        chunk_duration = self.config.chunk_duration_minutes
+        _notify(
+            {
+                "phase": "chunking",
+                "progress_percent": 10,
+                "message": (
+                    f"Dividindo em {chunk_count} blocos cronológicos de até {chunk_duration} min..."
+                ),
+                "chunk_total": chunk_count,
+            }
+        )
 
         # Step 3: Map Phase across chunks
         chunk_summaries: list[str] = []
@@ -676,7 +691,23 @@ class TranscriptSummarizer:
         raw_glossary_entries: list[dict[str, Any]] = []
         raw_flashcard_entries: list[dict[str, Any]] = []
 
-        for chunk in chunks:
+        for i, chunk in enumerate(chunks, start=1):
+            map_percent = 10 + int(70 * (i / chunk_count))
+            map_message = (
+                f"Analisando bloco {i} de {chunk_count} ({chunk.start_time} - {chunk.end_time})..."
+            )
+            _notify(
+                {
+                    "phase": "map",
+                    "progress_percent": map_percent,
+                    "chunk_current": i,
+                    "chunk_total": chunk_count,
+                    "start_time": chunk.start_time,
+                    "end_time": chunk.end_time,
+                    "message": map_message,
+                }
+            )
+
             chunk_result = self._map_chunk(chunk)
             summary_text = str(chunk_result.get("chunk_summary") or "").strip()
             if summary_text:
@@ -693,6 +724,15 @@ class TranscriptSummarizer:
             for item in chunk_result.get("flashcards") or []:
                 if isinstance(item, dict):
                     raw_flashcard_entries.append(item)
+
+        # Step 4: Reduce Phase
+        _notify(
+            {
+                "phase": "reduce",
+                "progress_percent": 85,
+                "message": "Consolidando tese central, glossário e flashcards com Ollama...",
+            }
+        )
 
         # Normalize timeline
         timeline_list: list[TimelineEntry] = []
@@ -754,7 +794,6 @@ class TranscriptSummarizer:
                 FlashcardEntry(id=card_id, question=question, answer=answer, timestamp=ts)
             )
 
-        # Step 4: Reduce Phase
         executive, spoken_summary = self._reduce_synthesis(
             chunk_summaries, timeline_list, glossary_list
         )
@@ -780,13 +819,28 @@ class TranscriptSummarizer:
             spoken_summary=spoken_summary,
         )
 
-        # Step 6: Write sidecar JSON
+        # Step 6 & 7: Persisting sidecars
+        _notify(
+            {
+                "phase": "persisting",
+                "progress_percent": 95,
+                "message": "Gravando sidecars .resumo.md e .resumo.json...",
+            }
+        )
         json_content = json.dumps(summary.to_dict(), ensure_ascii=False, indent=2)
         json_path.write_text(json_content, encoding="utf-8")
 
-        # Step 7: Write Markdown document
         md_content = self.render_markdown(summary)
         md_path.write_text(md_content, encoding="utf-8")
+
+        # Step 8: Completed
+        _notify(
+            {
+                "phase": "completed",
+                "progress_percent": 100,
+                "message": "Resumo concluído com sucesso!",
+            }
+        )
 
         return md_path
 
@@ -821,19 +875,23 @@ class TranscriptSummarizer:
             lines.extend(["_Nenhum resumo executivo disponível._", ""])
 
         if summary.spoken_summary:
-            lines.extend([
-                "## Roteiro Falado (Podcast / Áudio)",
-                "",
-                summary.spoken_summary,
-                "",
-            ])
+            lines.extend(
+                [
+                    "## Roteiro Falado (Podcast / Áudio)",
+                    "",
+                    summary.spoken_summary,
+                    "",
+                ]
+            )
 
         lines.extend(["## Linha do Tempo", ""])
         if summary.timeline:
-            lines.extend([
-                "| Timestamp | Tópico | Resumo | Ref. Slide |",
-                "| :--- | :--- | :--- | :--- |",
-            ])
+            lines.extend(
+                [
+                    "| Timestamp | Tópico | Resumo | Ref. Slide |",
+                    "| :--- | :--- | :--- | :--- |",
+                ]
+            )
             for entry in summary.timeline:
                 slide = entry.slide_ref or "-"
                 summary_cleaned = entry.summary.replace("\n", " ").replace("|", "\\|")
@@ -848,9 +906,7 @@ class TranscriptSummarizer:
         lines.extend(["## Glossário de Termos Técnicos", ""])
         if summary.glossary:
             for entry in summary.glossary:
-                lines.append(
-                    f"- **{entry.term}** (`{entry.first_timestamp}`): {entry.definition}"
-                )
+                lines.append(f"- **{entry.term}** (`{entry.first_timestamp}`): {entry.definition}")
             lines.append("")
         else:
             lines.extend(["_Nenhum termo técnico registrado._", ""])
@@ -858,12 +914,14 @@ class TranscriptSummarizer:
         lines.extend(["## Flashcards de Fixação", ""])
         if summary.flashcards:
             for idx, card in enumerate(summary.flashcards, start=1):
-                lines.extend([
-                    f"### Card {idx:02d} (`{card.timestamp}`)",
-                    f"- **Pergunta:** {card.question}",
-                    f"- **Resposta:** {card.answer}",
-                    "",
-                ])
+                lines.extend(
+                    [
+                        f"### Card {idx:02d} (`{card.timestamp}`)",
+                        f"- **Pergunta:** {card.question}",
+                        f"- **Resposta:** {card.answer}",
+                        "",
+                    ]
+                )
         else:
             lines.extend(["_Nenhum flashcard gerado._", ""])
 
@@ -908,8 +966,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--timeout",
         type=int,
-        default=120,
-        help="Tempo limite em segundos para respostas HTTP do Ollama (padrão: 120)",
+        default=600,
+        help="Tempo limite em segundos para respostas HTTP do Ollama (padrão: 600)",
     )
 
     args = parser.parse_args(argv)

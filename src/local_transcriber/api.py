@@ -263,6 +263,16 @@ class TranscriptSummaryResponse(ApiModel):
     spoken_summary: str = ""
 
 
+class SummaryProgressResponse(ApiModel):
+    phase: str
+    progress_percent: int
+    message: str
+    chunk_current: int | None = None
+    chunk_total: int | None = None
+    start_time: str | None = None
+    end_time: str | None = None
+
+
 class _WorkerController:
     def __init__(
         self,
@@ -723,6 +733,7 @@ def create_app(
     app.state.queue = queue
     app.state.worker_controller = controller
     app.state.worker_lock = worker_lock
+    app.state.summary_progress = {}
 
     def job_payload(job: TranscriptionJob) -> JobResponse:
         # Read the cursor before refreshing the job. A concurrent event can then be
@@ -1151,6 +1162,28 @@ def create_app(
             LOGGER.exception("Falha ao ler o sidecar de resumo em %s", json_path)
             raise ValueError("arquivo de resumo corrompido ou ilegível") from err
 
+    @app.get(
+        f"{API_PREFIX}/transcripts/{{transcript_id}}/summary/progress",
+        response_model=SummaryProgressResponse,
+    )
+    def get_transcript_summary_progress(transcript_id: str) -> SummaryProgressResponse:
+        if repository.get_transcript(transcript_id) is None:
+            raise KeyError("transcript not found")
+        if transcript_id in app.state.summary_progress:
+            return SummaryProgressResponse(**app.state.summary_progress[transcript_id])
+        json_path = find_summary_file(transcript_id, "json")
+        if json_path is not None and json_path.is_file():
+            return SummaryProgressResponse(
+                phase="completed",
+                progress_percent=100,
+                message="Resumo concluído com sucesso!",
+            )
+        return SummaryProgressResponse(
+            phase="idle",
+            progress_percent=0,
+            message="Nenhuma sumarização em andamento.",
+        )
+
     @app.post(
         f"{API_PREFIX}/transcripts/{{transcript_id}}/summary",
         response_model=TranscriptSummaryResponse,
@@ -1158,10 +1191,18 @@ def create_app(
     async def generate_transcript_summary(
         transcript_id: str,
         request: Request,
-    ) -> TranscriptSummaryResponse:
+        stream: bool = False,
+    ) -> Any:
         transcript = repository.get_transcript(transcript_id)
         if transcript is None:
             raise KeyError("transcript not found")
+
+        raw_stream_param = request.query_params.get("stream")
+        if raw_stream_param is not None:
+            is_stream = raw_stream_param.lower() in {"true", "1", "yes"}
+        else:
+            accept_header = request.headers.get("accept", "").lower()
+            is_stream = stream or ("text/event-stream" in accept_header)
 
         payload_kwargs: dict[str, Any] = {}
         content_type = request.headers.get("content-type", "")
@@ -1187,19 +1228,111 @@ def create_app(
         source_path = ensure_transcript_source(transcript)
         config = SummaryConfig(**payload_kwargs) if payload_kwargs else SummaryConfig()
         summarizer = TranscriptSummarizer(config=config)
-        md_path = summarizer.summarize(source_path, output_dir=source_path.parent)
 
-        stem = md_path.stem[:-7] if md_path.stem.endswith(".resumo") else md_path.stem
-        json_path = md_path.with_name(f"{stem}.resumo.json")
-        if not json_path.is_file():
-            found = find_summary_file(transcript_id, "json")
-            if found is not None and found.is_file():
-                json_path = found
-            else:
-                raise FileNotFoundError("arquivo sidecar .resumo.json não encontrado após geração")
+        if not is_stream:
 
-        data = json.loads(json_path.read_text(encoding="utf-8"))
-        return TranscriptSummaryResponse(**data)
+            def sync_progress_callback(event_data: dict[str, Any]) -> None:
+                app.state.summary_progress[transcript_id] = event_data
+
+            try:
+                md_path = summarizer.summarize(
+                    source_path,
+                    output_dir=source_path.parent,
+                    progress_callback=sync_progress_callback,
+                )
+            except Exception as exc:
+                safe_err = _safe_message(exc, app_config.paths.root)
+                app.state.summary_progress[transcript_id] = {
+                    "phase": "failed",
+                    "progress_percent": app.state.summary_progress.get(transcript_id, {}).get(
+                        "progress_percent", 0
+                    ),
+                    "message": safe_err,
+                }
+                raise
+
+            stem = md_path.stem[:-7] if md_path.stem.endswith(".resumo") else md_path.stem
+            json_path = md_path.with_name(f"{stem}.resumo.json")
+            if not json_path.is_file():
+                found = find_summary_file(transcript_id, "json")
+                if found is not None and found.is_file():
+                    json_path = found
+                else:
+                    raise FileNotFoundError(
+                        "arquivo sidecar .resumo.json não encontrado após geração"
+                    )
+
+            data = json.loads(json_path.read_text(encoding="utf-8"))
+            return TranscriptSummaryResponse(**data)
+
+        event_queue: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue()
+        loop = asyncio.get_running_loop()
+
+        def stream_progress_callback(event_data: dict[str, Any]) -> None:
+            app.state.summary_progress[transcript_id] = event_data
+            loop.call_soon_threadsafe(event_queue.put_nowait, ("progress", event_data))
+
+        def background_summarizer_task() -> None:
+            try:
+                md_path = summarizer.summarize(
+                    source_path,
+                    output_dir=source_path.parent,
+                    progress_callback=stream_progress_callback,
+                )
+                stem = md_path.stem[:-7] if md_path.stem.endswith(".resumo") else md_path.stem
+                json_path = md_path.with_name(f"{stem}.resumo.json")
+                if not json_path.is_file():
+                    found = find_summary_file(transcript_id, "json")
+                    if found is not None and found.is_file():
+                        json_path = found
+                    else:
+                        raise FileNotFoundError(
+                            "arquivo sidecar .resumo.json não encontrado após geração"
+                        )
+
+                data = json.loads(json_path.read_text(encoding="utf-8"))
+                validated = TranscriptSummaryResponse(**data).model_dump(mode="json")
+                loop.call_soon_threadsafe(event_queue.put_nowait, ("complete", validated))
+            except Exception as exc:
+                safe_err = _safe_message(exc, app_config.paths.root)
+                app.state.summary_progress[transcript_id] = {
+                    "phase": "failed",
+                    "progress_percent": app.state.summary_progress.get(transcript_id, {}).get(
+                        "progress_percent", 0
+                    ),
+                    "message": safe_err,
+                }
+                loop.call_soon_threadsafe(event_queue.put_nowait, ("error", {"detail": safe_err}))
+            finally:
+                loop.call_soon_threadsafe(event_queue.put_nowait, ("_done", {}))
+
+        worker_thread = Thread(target=background_summarizer_task, daemon=True)
+        worker_thread.start()
+
+        async def sse_event_stream() -> AsyncIterator[str]:
+            yield "retry: 2000\n\n"
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    event_type, payload = await asyncio.wait_for(
+                        event_queue.get(), timeout=sse_heartbeat_interval
+                    )
+                except TimeoutError:
+                    yield ": heartbeat\n\n"
+                    continue
+
+                if event_type == "_done":
+                    break
+
+                encoded = json.dumps(payload, ensure_ascii=False)
+                yield f"event: {event_type}\ndata: {encoded}\n\n"
+
+        return StreamingResponse(
+            sse_event_stream(),
+            media_type="text/event-stream; charset=utf-8",
+            headers={"Connection": "keep-alive", "X-Accel-Buffering": "no"},
+        )
 
     @app.get(f"{API_PREFIX}/transcripts/{{transcript_id}}/summary/download")
     def download_transcript_summary(

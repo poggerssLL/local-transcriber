@@ -948,17 +948,95 @@ function seekActivePlayer(seconds) {
   }
 }
 
+let summaryTimerInterval = null;
+let summaryElapsedSeconds = 0;
+
+function formatSummaryTimer(totalSeconds) {
+  const mins = String(Math.floor(totalSeconds / 60)).padStart(2, "0");
+  const secs = String(totalSeconds % 60).padStart(2, "0");
+  return `${mins}:${secs}`;
+}
+
+function startSummaryTimer() {
+  stopSummaryTimer();
+  summaryElapsedSeconds = 0;
+  const timerEl = byId("summary-progress-timer");
+  if (timerEl) {
+    timerEl.textContent = "00:00";
+  }
+  summaryTimerInterval = setInterval(() => {
+    summaryElapsedSeconds++;
+    const timer = byId("summary-progress-timer");
+    if (timer) {
+      timer.textContent = formatSummaryTimer(summaryElapsedSeconds);
+    }
+  }, 1000);
+}
+
+function stopSummaryTimer() {
+  if (summaryTimerInterval !== null) {
+    clearInterval(summaryTimerInterval);
+    summaryTimerInterval = null;
+  }
+}
+
+function updateSummaryProgress(percent, message) {
+  const panel = byId("summary-status-indicator");
+  const progressBar = byId("summary-progress-bar");
+  const progressPercent = byId("summary-progress-percent");
+  const statusText = byId("summary-status-text");
+
+  if (panel) {
+    panel.hidden = false;
+    panel.classList.remove("is-error");
+  }
+
+  if (typeof percent === "number" && Number.isFinite(percent)) {
+    const clamped = Math.min(100, Math.max(0, Math.round(percent)));
+    if (progressBar) {
+      progressBar.style.width = `${clamped}%`;
+      progressBar.setAttribute("aria-valuenow", String(clamped));
+      if (clamped === 100) {
+        progressBar.classList.add("is-complete");
+      } else {
+        progressBar.classList.remove("is-complete");
+      }
+    }
+    if (progressPercent) {
+      progressPercent.textContent = `${clamped}%`;
+    }
+  }
+
+  if (message && statusText) {
+    statusText.textContent = message;
+  }
+}
+
 function resetSummaryUI() {
+  stopSummaryTimer();
   const emptyState = byId("summary-empty-state");
   const contentState = byId("summary-content");
   const indicator = byId("summary-status-indicator");
+  const progressBar = byId("summary-progress-bar");
+  const progressPercent = byId("summary-progress-percent");
+  const progressTimer = byId("summary-progress-timer");
   const btnGen = byId("btn-generate-summary");
   const btnGenText = byId("btn-generate-summary-text");
   const downloadGroup = byId("summary-download-group");
 
   if (emptyState) emptyState.hidden = false;
   if (contentState) contentState.hidden = true;
-  if (indicator) indicator.hidden = true;
+  if (indicator) {
+    indicator.hidden = true;
+    indicator.classList.remove("is-error");
+  }
+  if (progressBar) {
+    progressBar.style.width = "0%";
+    progressBar.setAttribute("aria-valuenow", "0");
+    progressBar.classList.remove("is-complete");
+  }
+  if (progressPercent) progressPercent.textContent = "0%";
+  if (progressTimer) progressTimer.textContent = "00:00";
   if (downloadGroup) downloadGroup.hidden = true;
 
   if (btnGen) {
@@ -983,6 +1061,7 @@ function resetSummaryUI() {
 }
 
 function renderSummary(summary, transcriptId) {
+  stopSummaryTimer();
   if (!summary) return;
 
   const emptyState = byId("summary-empty-state");
@@ -1171,26 +1250,96 @@ async function handleGenerateSummary() {
   const btnGen = byId("btn-generate-summary");
   const btnGenText = byId("btn-generate-summary-text");
   const indicator = byId("summary-status-indicator");
+  const progressBar = byId("summary-progress-bar");
+  const progressPercent = byId("summary-progress-percent");
   const statusText = byId("summary-status-text");
 
   if (btnGen) btnGen.disabled = true;
   if (btnGenText) btnGenText.textContent = "Gerando síntese...";
-  if (indicator) indicator.hidden = false;
-  if (statusText) statusText.textContent = "Processando com Ollama local…";
+  if (indicator) {
+    indicator.hidden = false;
+    indicator.classList.remove("is-error");
+  }
+  if (progressBar) {
+    progressBar.style.width = "0%";
+    progressBar.setAttribute("aria-valuenow", "0");
+    progressBar.classList.remove("is-complete");
+  }
+  if (progressPercent) progressPercent.textContent = "0%";
+  if (statusText) statusText.textContent = "Iniciando síntese via Ollama…";
+
+  startSummaryTimer();
   announce("Iniciando síntese estruturada com Ollama.");
 
-  try {
-    const summary = await api.generateSummary(transcriptId);
-    if (state.readerContext?.transcriptId === transcriptId) {
-      renderSummary(summary, transcriptId);
+  let receivedSummary = null;
+
+  const onProgress = (event) => {
+    if (state.readerContext?.transcriptId !== transcriptId) {
+      return;
     }
+    const { event: eventName, data } = event;
+    if (eventName === "complete" || (data && (data.status === "complete" || data.executive))) {
+      receivedSummary = data?.summary || (data?.executive ? data : null);
+      updateSummaryProgress(100, "Síntese concluída!");
+      return;
+    }
+    if (eventName === "error") {
+      const detail = data?.detail || data?.error || data?.message || "Falha durante o processamento do modelo local.";
+      throw new Error(detail);
+    }
+
+    let percent = null;
+    if (typeof data?.progress_percent === "number") {
+      percent = data.progress_percent;
+    } else if (typeof data?.percent === "number") {
+      percent = data.percent;
+    } else if (typeof data?.chunk_current === "number" && typeof data?.chunk_total === "number" && data.chunk_total > 0) {
+      percent = 10 + Math.round((data.chunk_current / data.chunk_total) * 70);
+    }
+
+    const msg = data?.message || data?.text || data?.phase;
+    updateSummaryProgress(percent, msg);
+  };
+
+  try {
+    const streamResult = await api.streamSummary(transcriptId, onProgress);
+    const summaryToRender = receivedSummary || streamResult;
+
+    stopSummaryTimer();
+
+    let finalSummary = summaryToRender;
+    if (!finalSummary || !finalSummary.executive) {
+      finalSummary = await api.summary(transcriptId);
+    }
+
+    if (state.readerContext?.transcriptId === transcriptId && finalSummary) {
+      renderSummary(finalSummary, transcriptId);
+    }
+
     toast("Resumo estruturado gerado com sucesso!");
     announce("Resumo estruturado concluído.");
   } catch (error) {
-    toast(errorMessage(error), "error");
+    stopSummaryTimer();
+    const msg = errorMessage(error);
+    toast(msg, "error");
+
+    if (indicator) {
+      indicator.classList.add("is-error");
+      indicator.hidden = false;
+    }
+    if (statusText) {
+      statusText.textContent = `Falha: ${msg}`;
+    }
+    if (progressPercent) {
+      progressPercent.textContent = "Erro";
+    }
+    if (progressBar) {
+      progressBar.style.width = "100%";
+      progressBar.classList.remove("is-complete");
+    }
+
     if (btnGen) btnGen.disabled = false;
     if (btnGenText) btnGenText.textContent = "Tentar Novamente com Ollama";
-    if (indicator) indicator.hidden = true;
   }
 }
 

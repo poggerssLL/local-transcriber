@@ -195,3 +195,33 @@ só, uma tarefa autorizada; qualquer mudança continua dependente do escopo soli
   persistido a partir de `Last-Event-ID`.
 - Possível direção futura: ajustar o intervalo após medições reais, preservando replay.
 - Fase provável: validação futura autorizada.
+
+## Disponibilidade de Ollama e modelo local
+
+- Descrição: a sumarização estruturada pedagógica depende da disponibilidade do serviço local
+  Ollama em `http://127.0.0.1:11434` e do modelo `qwen2.5:3b` previamente baixado pelo operador.
+- Impacto: se o daemon do Ollama estiver inativo, não responder ou o modelo não estiver instalado,
+  a solicitação de resumo não é concluída.
+- Situação atual: a falha é tratada com resposta HTTP 503 sanitizada e segura, sem qualquer
+  fallback para serviços externos ou vazamento de dados.
+- Possível direção futura: adicionar verificação de saúde e presença de modelo nas rotas de
+  capacidade da API e na interface web.
+- Fase provável: melhoria futura autorizada.
+
+## Limites remanescentes da manutenção 8C
+
+- Dívida Ruff E501/formatação resolvida: check global e format --check aprovados
+  em src/tests. A 8C mudou somente estilo de quatro arquivos e os testes da fila.
+- O teste de retries usa relógio controlado; expiração/margem de lease tem
+  regressão separada. Isso remove a competição entre duas condições de parada.
+  A causa exata do evento histórico 8B permanece desconhecida. Timeouts externos
+  de sincronização permanecem limites sob sobrecarga extrema.
+- pip check retorna 0 sem dependências quebradas, com aviso de distribuição
+  inválida ~ocal-transcriber no ambiente existente. Nenhuma instalação, remoção
+  ou reparo de ambiente foi realizada.
+- Não há validação nova de inferência, CUDA, daemon Ollama ou mídia real.
+- Artefatos sintéticos remanescentes da limpeza 8B foram preservados; inventário
+  anterior completo desconhecido. A 8C usou checkout e temporários novos isolados,
+  sem apagar diretórios de fixtures.
+
+[Relatório 8C](PHASE_08C_STYLE_AND_HEARTBEAT_TESTS_2026-10-05.md).

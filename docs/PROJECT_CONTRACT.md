@@ -12,5 +12,5 @@ Estes invariantes orientam todas as fases do **Local Transcriber**:
 - Nenhum recurso será carregado de CDN.
 - Nenhum modelo será baixado silenciosamente; downloads exigirão ação explícita.
 - O repositório `Local AI` não será alterado por este projeto.
-- Diarização, Ollama, microfone ao vivo e Home Assistant não fazem parte do MVP.
+- Diarização, microfone ao vivo e Home Assistant não fazem parte do MVP; a sumarização com Ollama local opera estritamente em localhost.
 - Uploads, modelos, bancos, áudios, vídeos e transcrições pessoais nunca entram no Git.

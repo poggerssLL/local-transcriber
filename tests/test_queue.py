@@ -34,6 +34,7 @@ from local_transcriber import (
     TranscriptionWorker,
     Word,
 )
+from local_transcriber.queueing import _LeaseHeartbeat
 
 
 @dataclass
@@ -517,7 +518,10 @@ def test_heartbeat_bounds_retries_when_sqlite_does_not_recover(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     paths, _database, repository, recording = _context(tmp_path)
-    TranscriptionQueue(repository, paths).enqueue(recording.id)
+    # This test targets the retry count, independently of wall-clock expiry.
+    # Scheduling delays must not select the separate safety-margin branch.
+    clock = FakeClock()
+    TranscriptionQueue(repository, paths, now=lambda: clock.now).enqueue(recording.id)
     started = Event()
     release = Event()
     attempts = 0
@@ -543,6 +547,7 @@ def test_heartbeat_bounds_retries_when_sqlite_does_not_recover(
         paths,
         worker_id="worker-a",
         lease_seconds=0.15,
+        now=lambda: clock.now,
         profiles=ProfileResolver(FixedProbe()),
         engine_factory=lambda _profile: CallbackAfterRetryLimit(),
     )
@@ -561,6 +566,39 @@ def test_heartbeat_bounds_retries_when_sqlite_does_not_recover(
     assert attempts == heartbeat.max_transient_retries + 1
     assert result.status is JobStatus.RUNNING
     assert result.error_message is None
+    assert repository.list_transcripts(recording.id) == []
+
+
+def test_heartbeat_stops_retry_when_confirmed_lease_margin_is_exhausted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    paths, _database, repository, recording = _context(tmp_path)
+    clock = FakeClock()
+    job = TranscriptionQueue(repository, paths, now=lambda: clock.now).enqueue(recording.id)
+    attempts = 0
+
+    def unavailable_database(*args, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        # Deterministically model a delayed renewal, without sleeps or threads.
+        clock.advance(20)
+        raise sqlite3.OperationalError("database remains locked")
+
+    monkeypatch.setattr(repository, "renew_lease", unavailable_database)
+    heartbeat = _LeaseHeartbeat(
+        repository,
+        job.id,
+        "worker-a",
+        1,
+        lambda: clock.now,
+        clock.now + timedelta(seconds=1),
+    )
+    assert heartbeat._renew() is False
+    assert attempts == 1
+    assert heartbeat.lost
+    assert isinstance(heartbeat.first_error, sqlite3.OperationalError)
+    with pytest.raises(LeaseOwnershipLost):
+        heartbeat.raise_if_lost()
     assert repository.list_transcripts(recording.id) == []
 
 

@@ -256,10 +256,37 @@
                   <h3 id="summary-heading">Resumo Estruturado &amp; Estudo</h3>
                 </div>
                 <div class="summary-actions">
-                  <div id="summary-status-indicator" class="summary-status" role="status" aria-live="polite" hidden>
-                    <span class="summary-spinner" aria-hidden="true"></span>
-                    <span id="summary-status-text">Processando via Ollama…</span>
+                  <!-- Painel Expandido de Status e Progresso da Síntese Ollama -->
+                  <div id="summary-status-indicator" class="summary-status-panel" role="status" aria-live="polite" hidden>
+                    <div class="summary-status-main-row">
+                      <div class="summary-status-info">
+                        <span class="summary-spinner" aria-hidden="true"></span>
+                        <span id="summary-status-text" class="summary-status-text">Iniciando síntese via Ollama…</span>
+                      </div>
+                      <div class="summary-status-metrics">
+                        <span id="summary-progress-percent" class="summary-progress-percent">0%</span>
+                        <span class="summary-metrics-sep" aria-hidden="true">·</span>
+                        <span class="summary-timer-group">
+                          <span class="summary-timer-icon" aria-hidden="true">⏱️</span>
+                          <span id="summary-progress-timer" class="summary-progress-timer" title="Tempo decorrido">00:00</span>
+                        </span>
+                      </div>
+                    </div>
+
+                    <!-- Barra de Progresso com Preenchimento Suave -->
+                    <div class="summary-progress-track">
+                      <div id="summary-progress-bar"
+                           class="summary-progress-bar"
+                           role="progressbar"
+                           aria-valuenow="0"
+                           aria-valuemin="0"
+                           aria-valuemax="100"
+                           aria-label="Progresso da síntese"
+                           style="width: 0%;">
+                      </div>
+                    </div>
                   </div>
+
                   <button id="btn-generate-summary" class="button button-secondary" type="button">
                     <span class="button-icon" aria-hidden="true">⚡</span>
                     <span id="btn-generate-summary-text">Gerar Resumo com Ollama</span>

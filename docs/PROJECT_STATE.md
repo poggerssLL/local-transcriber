@@ -1,6 +1,6 @@
 # Estado atual do projeto
 
-> Fotografia verificada em 2026-09-18 após a conclusão da Etapa 8. Atualize este documento ao fim de cada fase;
+> Fotografia verificada em 2026-10-05 após manutenção 8C de estilo e testes. Atualize este documento ao fim de cada fase;
 > não reescreva os relatórios históricos de fases concluídas.
 
 O **Local Transcriber** é uma aplicação local para catalogar gravações e persistir o
@@ -16,7 +16,8 @@ demais dados de runtime ficam fora do repositório.
   3, Faster Whisper, gerenciamento explícito de modelos e CLI; 4, fila persistente;
   5, API HTTP local e SSE; 6, interface web local; 7, integração e validação real do MVP;
   7B, aceleração CUDA local e resiliência da exclusão durante jobs ativos; 8, resumo estruturado
-  com Ollama local e integração web completa (visualização e download).
+  com Ollama local e integração web completa (visualização e download); 8B, manutenção de
+  baseline, validação estática e consolidação factual da documentação.
 - Funcionalidades disponíveis: configuração de runtime, catálogo de matérias e gravações,
   importação e inspeção de mídia por PyAV, duplicidade exata por SHA-256, pesquisa FTS5,
   persistência do domínio, transcrição síncrona, enfileiramento, worker local sequencial,
@@ -35,8 +36,17 @@ demais dados de runtime ficam fora do repositório.
   verifica `.venv` e a porta escolhida, mantém o processo em primeiro plano e fixa loopback e um worker.
 - Dependências validadas: PyAV 16.1.0, Faster Whisper 1.2.1, CTranslate2 4.8.2,
   FastAPI 0.116.2, Starlette 0.48.0, Uvicorn 0.52.4 e python-multipart 0.0.32.
-- Última validação registrada nesta fotografia: 134 testes Python aprovados (incluindo 19 testes
-  específicos do resumidor e da API de resumos) e verificação estática pelo ruff com 0 erros.
+- Manutenção 8C (2026-10-05) em checkout isolado com importação do pacote confirmada:
+  142 testes Python aprovados (24 da fila); Ruff check global aprovado e 28 arquivos
+  já formatados. Compilação de sintaxe de src/tests e git diff --check aprovados.
+  pip check não encontrou dependências quebradas, mas emitiu aviso de distribuição
+  inválida ~ocal-transcriber no ambiente existente, sem reparo de ambiente.
+  Estilo dos quatro arquivos preserva AST funcional; três docstrings de testes
+  foram refluídas. O teste de retries usa FakeClock estável para não competir
+  com expiração real; regressão separada prova recusa após esgotar a margem
+  de lease. A causa da falha histórica 8B não foi inferida retrospectivamente.
+  Validação somente com mocks/fixtures sintéticos, sem inferência/modelos reais,
+  download, daemon Ollama ou dados pessoais; versão 0.7.1 e schema v4 preservados.
 - Próxima etapa: futuras etapas de diarização ou transcrição contínua em tempo real.
 - `local-transcriber serve` aceita somente `127.0.0.1` e um consumidor de fila por
   runtime. `Host` e `Origin` são validados, respostas não expõem caminhos físicos e a API
@@ -94,7 +104,7 @@ demais dados de runtime ficam fora do repositório.
 - A exclusão de uma gravação com job `pending` ou `running` agora recebe conflito e preserva
   gravação, mídia e job. Uma ausência excepcional de job reivindicado é tratada como perda
   de lease, sem encerrar o worker.
-- Fora do MVP atual: diarização, Ollama, microfone ao vivo e Home Assistant.
+- Fora do MVP atual: diarização, microfone ao vivo e Home Assistant (a sumarização estruturada com Ollama local restringe-se estritamente ao localhost).
 
 Referências: [contrato](PROJECT_CONTRACT.md), [arquitetura viva](FOUNDATION.md),
 [roadmap](ROADMAP.md), [Etapa 1](PHASE_01_FOUNDATION.md),
@@ -108,5 +118,12 @@ Referências: [contrato](PROJECT_CONTRACT.md), [arquitetura viva](FOUNDATION.md)
 [Etapa 6](PHASE_06_WEB_INTERFACE.md) e
 [correção complementar 5C](PHASE_05C_SQLITE_CONTENTION_RELIABILITY.md) e
 [correção complementar 6B](PHASE_06B_ASYNC_CONCURRENCY_RELIABILITY.md) e
-[Etapa 7](PHASE_07_MVP_INTEGRATION_AND_REAL_VALIDATION.md) e
-[correção complementar 7B](PHASE_07B_LOCAL_CUDA_ACCELERATION.md).
+[Etapa 7](PHASE_07_MVP_INTEGRATION_AND_REAL_VALIDATION.md),
+[correção complementar 7B](PHASE_07B_LOCAL_CUDA_ACCELERATION.md),
+[Etapa 8](PHASE_08_STRUCTURED_SUMMARIZER_AND_WEB_INTEGRATION.md) e
+[manutenção e validação de baseline 8B](PHASE_08B_MAINTENANCE_VALIDATION_2026-10-05.md).
+
+Complemento atual: [manutenção 8C](PHASE_08C_STYLE_AND_HEARTBEAT_TESTS_2026-10-05.md).
+Publicação conjunta da Etapa 8 e manutenções 8B/8C autorizada por Erick em
+2026-10-05 e consolidada neste commit; SHA e push são verificáveis no Git.
+Etapas futuras não iniciadas.

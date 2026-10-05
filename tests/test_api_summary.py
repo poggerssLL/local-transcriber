@@ -259,38 +259,42 @@ def test_post_summary_auto_exports_markdown_and_generates_summary(client: TestCl
     assert not md_export_path.exists()
 
     # Mock Ollama map and reduce responses
-    map_response = json.dumps({
-        "chunk_summary": "Introdução à dinâmica veicular e modelagem.",
-        "timeline": [
-            {
-                "timestamp": "00:00:00",
-                "seconds": 0.0,
-                "topic": "Abertura",
-                "summary": "Boas vindas aos alunos.",
-                "slide_ref": "Slide 1",
-            }
-        ],
-        "glossary": [
-            {
-                "term": "Dinâmica",
-                "definition": "Estudo das forças e seus efeitos sobre os corpos.",
-                "first_timestamp": "00:00:00",
-            }
-        ],
-        "flashcards": [
-            {
-                "question": "O que é dinâmica?",
-                "answer": "Ramo da mecânica clássica focado no movimento e suas causas.",
-                "timestamp": "00:00:00",
-            }
-        ],
-    })
+    map_response = json.dumps(
+        {
+            "chunk_summary": "Introdução à dinâmica veicular e modelagem.",
+            "timeline": [
+                {
+                    "timestamp": "00:00:00",
+                    "seconds": 0.0,
+                    "topic": "Abertura",
+                    "summary": "Boas vindas aos alunos.",
+                    "slide_ref": "Slide 1",
+                }
+            ],
+            "glossary": [
+                {
+                    "term": "Dinâmica",
+                    "definition": "Estudo das forças e seus efeitos sobre os corpos.",
+                    "first_timestamp": "00:00:00",
+                }
+            ],
+            "flashcards": [
+                {
+                    "question": "O que é dinâmica?",
+                    "answer": "Ramo da mecânica clássica focado no movimento e suas causas.",
+                    "timestamp": "00:00:00",
+                }
+            ],
+        }
+    )
 
-    reduce_response = json.dumps({
-        "core_thesis": "A modelagem matemática viabiliza o controle preditivo.",
-        "paragraphs": ["A aula estabeleceu os princípios mecânicos."],
-        "spoken_summary": "Resumo falado da aula sobre modelagem mecânica.",
-    })
+    reduce_response = json.dumps(
+        {
+            "core_thesis": "A modelagem matemática viabiliza o controle preditivo.",
+            "paragraphs": ["A aula estabeleceu os princípios mecânicos."],
+            "spoken_summary": "Resumo falado da aula sobre modelagem mecânica.",
+        }
+    )
 
     call_index = 0
 
@@ -449,3 +453,168 @@ def test_summary_endpoints_enforce_security_and_no_path_leak(client: TestClient)
     assert trusted.headers["x-frame-options"] == "DENY"
     assert trusted.headers["cache-control"] == "no-store"
     assert trusted.headers["referrer-policy"] == "no-referrer"
+
+
+# ---------------------------------------------------------------------------
+# Test Cases: Real-Time SSE Streaming and Progress Polling
+# ---------------------------------------------------------------------------
+
+
+def test_get_summary_progress_route(client: TestClient) -> None:
+    """GET /api/transcripts/{id}/summary/progress returns 404
+    for nonexistent or idle/completed state.
+    """
+    # 1. Nonexistent transcript -> 404
+    res_404 = client.get("/api/transcripts/nonexistent-id/summary/progress")
+    assert res_404.status_code == 404
+
+    # 2. Existing transcript without summary -> idle
+    _, recording_id = _seed_subject_and_recording(client)
+    transcript = _seed_transcript(client.app, recording_id)
+
+    res_idle = client.get(f"/api/transcripts/{transcript.id}/summary/progress")
+    assert res_idle.status_code == 200
+    idle_data = res_idle.json()
+    assert idle_data["phase"] == "idle"
+    assert idle_data["progress_percent"] == 0
+
+    # 3. Existing transcript with summary sidecar on disk -> completed
+    paths: RuntimePaths = client.app.state.config.paths
+    export_dir = paths.exports / transcript.id
+    export_dir.mkdir(parents=True, exist_ok=True)
+    json_path = export_dir / "transcript.resumo.json"
+    dummy_data = _make_dummy_summary_dict(transcript.id)
+    json_path.write_text(json.dumps(dummy_data, ensure_ascii=False), encoding="utf-8")
+
+    res_completed = client.get(f"/api/transcripts/{transcript.id}/summary/progress")
+    assert res_completed.status_code == 200
+    comp_data = res_completed.json()
+    assert comp_data["phase"] == "completed"
+    assert comp_data["progress_percent"] == 100
+
+
+def test_post_summary_streaming_sse_emits_progress_and_complete(client: TestClient) -> None:
+    """POST /api/transcripts/{id}/summary?stream=true streams SSE events
+    including progress and complete.
+    """
+    _, recording_id = _seed_subject_and_recording(client)
+    transcript = _seed_transcript(client.app, recording_id)
+
+    def mock_summarize(source_path, output_dir=None, progress_callback=None):
+        out = Path(output_dir) if output_dir else Path(source_path).parent
+        if progress_callback:
+            progress_callback(
+                {"phase": "parsing", "progress_percent": 5, "message": "Iniciando..."}
+            )
+            progress_callback(
+                {
+                    "phase": "map",
+                    "progress_percent": 45,
+                    "chunk_current": 1,
+                    "chunk_total": 2,
+                    "message": "Bloco 1...",
+                }
+            )
+            progress_callback({"phase": "completed", "progress_percent": 100, "message": "Fim!"})
+
+        stem = Path(source_path).stem
+        if stem.endswith(".transcription"):
+            stem = stem[:-14]
+        json_file = out / f"{stem}.resumo.json"
+        md_file = out / f"{stem}.resumo.md"
+        data = _make_dummy_summary_dict(transcript.id)
+        json_file.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        md_file.write_text("# Resumo", encoding="utf-8")
+        return md_file
+
+    with patch("local_transcriber.api.TranscriptSummarizer.summarize", side_effect=mock_summarize):
+        response = client.post(f"/api/transcripts/{transcript.id}/summary?stream=true")
+
+    assert response.status_code == 200
+    assert "text/event-stream" in response.headers["content-type"]
+    body = response.content.decode("utf-8")
+
+    assert "event: progress\n" in body
+    assert "event: complete\n" in body
+    assert "retry: 2000\n" in body
+    assert '"phase":"parsing"' in body or '"phase": "parsing"' in body
+    assert '"phase":"completed"' in body or '"phase": "completed"' in body
+    assert "schema_version" in body  # ASCII key always present in the complete payload
+
+
+def test_post_summary_streaming_via_accept_header(client: TestClient) -> None:
+    """POST with Accept: text/event-stream initiates streaming response."""
+    _, recording_id = _seed_subject_and_recording(client)
+    transcript = _seed_transcript(client.app, recording_id)
+
+    def mock_summarize(source_path, output_dir=None, progress_callback=None):
+        out = Path(output_dir) if output_dir else Path(source_path).parent
+        if progress_callback:
+            progress_callback({"phase": "parsing", "progress_percent": 5, "message": "Parsing..."})
+        stem = Path(source_path).stem
+        if stem.endswith(".transcription"):
+            stem = stem[:-14]
+        json_file = out / f"{stem}.resumo.json"
+        md_file = out / f"{stem}.resumo.md"
+        data = _make_dummy_summary_dict(transcript.id)
+        json_file.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        md_file.write_text("# Resumo", encoding="utf-8")
+        return md_file
+
+    with patch("local_transcriber.api.TranscriptSummarizer.summarize", side_effect=mock_summarize):
+        response = client.post(
+            f"/api/transcripts/{transcript.id}/summary",
+            headers={"Accept": "text/event-stream"},
+        )
+
+    assert response.status_code == 200
+    assert "text/event-stream" in response.headers["content-type"]
+    assert "event: complete\n" in response.text
+
+
+def test_post_summary_stream_false_overrides_accept_header(client: TestClient) -> None:
+    """Explicit stream=false query param returns JSON
+    even if Accept header contains text/event-stream.
+    """
+    _, recording_id = _seed_subject_and_recording(client)
+    transcript = _seed_transcript(client.app, recording_id)
+
+    def mock_summarize(source_path, output_dir=None, progress_callback=None):
+        out = Path(output_dir) if output_dir else Path(source_path).parent
+        stem = Path(source_path).stem
+        if stem.endswith(".transcription"):
+            stem = stem[:-14]
+        json_file = out / f"{stem}.resumo.json"
+        md_file = out / f"{stem}.resumo.md"
+        data = _make_dummy_summary_dict(transcript.id)
+        json_file.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        md_file.write_text("# Resumo", encoding="utf-8")
+        return md_file
+
+    with patch("local_transcriber.api.TranscriptSummarizer.summarize", side_effect=mock_summarize):
+        response = client.post(
+            f"/api/transcripts/{transcript.id}/summary?stream=false",
+            headers={"Accept": "text/event-stream"},
+        )
+
+    assert response.status_code == 200
+    assert "application/json" in response.headers["content-type"]
+    assert response.json()["schema_version"] == "1.0.0"
+
+
+def test_post_summary_streaming_error_emits_error_event(client: TestClient) -> None:
+    """Streaming failure yields event: error with sanitized message."""
+    _, recording_id = _seed_subject_and_recording(client)
+    transcript = _seed_transcript(client.app, recording_id)
+
+    with patch(
+        "local_transcriber.api.TranscriptSummarizer.summarize",
+        side_effect=OllamaUnavailableError("Ollama service unavailable at 127.0.0.1:11434"),
+    ):
+        response = client.post(f"/api/transcripts/{transcript.id}/summary?stream=true")
+
+    assert response.status_code == 200
+    assert "text/event-stream" in response.headers["content-type"]
+    body = response.text
+    assert "event: error\n" in body
+    assert "Ollama service unavailable" in body

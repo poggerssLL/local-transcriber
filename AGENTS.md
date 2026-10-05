@@ -48,7 +48,7 @@ o estado e o histórico de decisões ficam nos documentos versionados em `docs/`
 - O futuro servidor será limitado a `127.0.0.1`; não haverá dependência de CDN.
 - Modelos nunca serão baixados silenciosamente.
 - FastAPI e frontend vanilla entram somente nas fases previstas.
-- Diarização, Ollama, microfone ao vivo e Home Assistant estão fora do MVP atual.
+- Diarização, microfone ao vivo e Home Assistant estão fora do MVP atual; a sumarização com Ollama local opera estritamente em localhost.
 
 ## Dados e Git
 
