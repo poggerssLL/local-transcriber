@@ -339,6 +339,20 @@ revertam escolhas anteriores sem compreender suas consequências.
   fornecido pelo cliente e os handles são mantidos enquanto o processo existir. `cuda`
   continua sem fallback silencioso; `auto` mantém CPU `int8` quando a sondagem falha.
 
+## ADR-036 — Instalação de usuário separada do desenvolvimento
+
+- Data: 2026-10-13.
+- Status: aceita no escopo de replicação autorizado por Erick.
+- Decisão: caminho guiado Windows x64/Python 3.13 com venv próprio e instalação
+  normal, sem `[dev]`, sem modelo/daemon implícito e sem alteração global.
+  ZIP completo ou Git são equivalentes para obter o código; CPU é suficiente.
+- Motivo: permitir instalação independente do computador/ambiente do autor.
+- Consequências: smoke verifica wheel/assets/HTTP/SQLite em runtime sintético;
+  workflow Windows preparado, sem alegar execução remota antes de publicação.
+  Ranges permanecem no pyproject; não há lock bit a bit nem homologação de outros OS.
+- Licenciamento: Erick escolheu uso pessoal e não comercial, registrado em LICENSE;
+  dependências/modelos conservam suas próprias licenças. Não é licença irrestrita.
+
 ## ADR-035 — Exclusão preserva jobs ativos
 
 - Data: 2026-09-14

@@ -85,3 +85,21 @@ no heartbeat de produção ou no schema. A dívida de estilo da 8B foi resolvida
 a causa histórica da falha intermitente não foi inferida. Aviso pip de distribuição
 inválida permanece, sem repair/install. Etapas futuras não iniciadas.
 [Relatório 8C](PHASE_08C_STYLE_AND_HEARTBEAT_TESTS_2026-10-05.md).
+
+## Manutenção 8H: instalação para terceiros (2026-10-13)
+
+Repositório público e main remoto confirmados em 5cfc7b8. Novo instalador
+Windows x64/Python 3.13 cria venv e instala pacote normal sem extra dev, modelos
+ou daemons automáticos. Guia ZIP/Git, CPU primeiro, download explícito, Ollama
+opcional e diagnóstico disponíveis. LICENSE pessoal/não comercial escolhido
+expressamente por Erick e incluído no pacote; não concede uso comercial.
+Snapshot publicado mais entrega mínima instalado em venv novo no mesmo host:
+wheel com seis assets e licença, CLI, HTTP/interface e SQLite sintético aprovados,
+sem copiar modelos/dados e sem inferência. Suíte existente: 150 pass; Ruff,
+formatação, sintaxe e pip check aprovados. Workflow Windows preparado; não
+executado no GitHub durante a validação; publicação autorizada depois por Erick.
+Não homologados outro computador/OS,
+ARM, offline inicial ou qualidade semântica. 8G continua exigindo complemento.
+[Guia de instalação](INSTALLATION.md) e
+[relatório 8H e limites](PHASE_08H_GITHUB_INSTALLATION_2026-10-13.md).
+Os estados datados anteriores são históricos, sem ampliação de Etapa 9.

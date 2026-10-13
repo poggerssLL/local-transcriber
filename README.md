@@ -7,16 +7,32 @@ localhost, interface web local, eventos SSE e exportadores TXT, Markdown, SRT, W
 
 Versão atual: `0.7.1`, com schema SQLite v4.
 
+Uso permitido **pessoal e não comercial**, conforme a [licença](LICENSE).
+Uso comercial exige autorização expressa dos titulares.
+
 ## Requisitos e instalação
 
-- Windows e Python 3.11 ou superior.
-- Nenhum serviço externo é necessário.
+- Caminho recomendado: Windows 10/11 x64 e Python **3.13 64 bits**.
+- Sem necessidade de Orca, Codex, Node, conta de IA ou GPU NVIDIA. CPU funciona.
+- Internet na instalação inicial e no download explícito dos modelos; depois,
+  transcrição local. Ollama é opcional, apenas para resumos.
+- [Guia completo: ZIP/Git, primeiro uso e solução de problemas](docs/INSTALLATION.md).
+
+Baixe **Code → Download ZIP** neste GitHub e extraia a pasta inteira, ou use Git:
 
 ```powershell
-py -3.13 -m venv .venv
-.venv\Scripts\python -m pip install -e ".[dev]"
-.venv\Scripts\python -m pytest
+git clone https://github.com/poggerssLL/local-transcriber.git
+cd local-transcriber
+.\scripts\install-local-transcriber.ps1
+.\.venv\Scripts\local-transcriber.exe models download small --confirm
+.\scripts\start-local-transcriber.ps1
 ```
+
+Abra **http://127.0.0.1:8765** e mantenha o terminal aberto. Crie uma matéria,
+importe uma gravação curta e transcreva com modelo `small`, perfil `cpu`.
+O instalador não baixa modelos nem inicia servidor/Ollama automaticamente.
+Se scripts forem bloqueados, há comandos diretos no [guia](docs/INSTALLATION.md),
+sem alterar políticas globais. Dependências `[dev]` são apenas para contribuidores.
 
 As versões validadas na Etapa 3 foram `faster-whisper==1.2.1`,
 `ctranslate2==4.8.2` e `av==16.1.0` em Python 3.13 no Windows.

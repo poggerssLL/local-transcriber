@@ -1,0 +1,26 @@
+name: Windows installation
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install-and-start:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          architecture: x64
+      - name: Install without development dependencies or models
+        shell: powershell
+        run: ./scripts/install-local-transcriber.ps1 -PythonExecutable (Get-Command python).Source
+      - name: Verify installed package, web interface and fresh database
+        shell: powershell
+        run: ./.venv/Scripts/python.exe -B ./scripts/smoke-installed.py --runtime-root output/install-smoke
