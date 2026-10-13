@@ -146,3 +146,11 @@ ARM, offline inicial ou qualidade semântica. 8G continua exigindo complemento.
 [Guia de instalação](INSTALLATION.md) e
 [relatório 8H e limites](PHASE_08H_GITHUB_INSTALLATION_2026-10-13.md).
 Os estados datados anteriores são históricos, sem ampliação de Etapa 9.
+
+## 8H: validacao independente apos publicacao
+
+Commit d157c5c publicado em main. O workflow Windows installation concluiu com
+status success em runner windows-latest independente, com Python 3.13 x64:
+instalacao sem extra dev/modelos, pacote/assets, HTTP e SQLite sintetico aprovados.
+Nao e prova de inferencia/qualidade, todo hardware ou outros sistemas operacionais.
+[Validacao remota e limites](PHASE_08H_POSTPUBLICATION_WINDOWS_VALIDATION_2026-10-13.md).
