@@ -105,6 +105,15 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8765)
     serve.add_argument("--workers", type=int, default=1)
+
+    remote = commands.add_parser(
+        "remote-gateway",
+        help="run the private remote gateway on loopback (disabled unless configured)",
+    )
+    remote_actions = remote.add_subparsers(dest="action", required=True)
+    remote_serve = remote_actions.add_parser("serve")
+    remote_serve.add_argument("--host", default="127.0.0.1")
+    remote_serve.add_argument("--port", type=int, default=8766)
     return parser
 
 
@@ -180,6 +189,27 @@ def run(args: argparse.Namespace, *, out: TextIO, err: TextIO) -> int:
         from .api import create_app
 
         uvicorn.run(create_app(), host=args.host, port=args.port, workers=1)
+        return 0
+    if args.command == "remote-gateway":
+        if args.host != "127.0.0.1":
+            raise ValueError("remote-gateway only accepts --host 127.0.0.1")
+        if not 1 <= args.port <= 65535:
+            raise ValueError("port must be between 1 and 65535")
+        from .remote_gateway import create_remote_gateway_app
+
+        # Raises RemoteGatewayDisabledError unless the runtime configuration enables it.
+        gateway = create_remote_gateway_app()
+        import uvicorn
+
+        uvicorn.run(
+            gateway,
+            host="127.0.0.1",
+            port=args.port,
+            workers=1,
+            access_log=False,
+            proxy_headers=False,
+            server_header=False,
+        )
         return 0
     config, repository, library = _context()
     if args.command == "config":
