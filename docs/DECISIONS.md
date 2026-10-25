@@ -364,3 +364,70 @@ revertam escolhas anteriores sem compreender suas consequências.
 - Consequências: o operador cancela ou aguarda o job antes da exclusão. Ausência excepcional
   de job reivindicado é tratada como perda de lease, permitindo que o worker continue;
   schema, eventos, retries SQLite limitados e contratos públicos permanecem compatíveis.
+
+## ADR-039 — Gateway privado FastAPI em loopback para ingestão remota restrita (Etapa 8J-A)
+
+- Data: 2026-10-24
+- Status: aceita
+- Decisão: introduzir o módulo `remote_gateway.py` como uma aplicação FastAPI independente, desligada por padrão (arquivo de configuração `remote/gateway.json`) e vinculada exclusivamente ao loopback (`127.0.0.1`), projetada para atuar como fronteira de ingestão para clientes autorizados (ex.: iPad via Tailscale):
+  1. Isolamento arquitetural: processo e porta separados da core API (porta padrão `8766` vs `8765`, configurável via CLI, sempre em `127.0.0.1`), sem reutilização de rotas core, sem CORS e sem exposição de endpoints administrativos ou do sintetizador LLM (Ollama/ChatGPT). A core API permanece 100% restrita ao loopback local.
+  2. Identidade Tailscale confiável: autenticação baseada no cabeçalho de identidade injetado pelo proxy local confiável (`Tailscale-User-Login`), exigindo correspondência exata contra allowlist estática (`allowed_identities`); cabeçalho ausente ou vazio resulta em 401, duplicado ou não autorizado resulta em 403; requisições contendo `Tailscale-Funnel-Request` são rejeitadas com 403. O gateway opera em `proxy_headers=False` no Uvicorn e rejeita qualquer binding em interfaces públicas.
+  3. Proteção contra CSRF e validação de origem: prefixo de rotas `/remote/v1`; validação estrita de `Host` (hostname bare em allowlist, rejeitando porta, path, query, fragment ou userinfo) e `Origin` HTTPS exato (sem barra final ou porta inesperada); sessão com cookie contendo identificador de sessão aleatório (`SameSite=Strict`, `HttpOnly`, `Secure` no caminho `/remote/v1`) e token CSRF assinado por HMAC-SHA256 vinculado à sessão e à identidade, derivado de segredo `remote/csrf.key` protegido com ACL restrita do Windows (`icacls`), validada e reaplicada no startup.
+  4. Mitigação de IDOR: registros de áudio e jobs enfileirados são vinculados à chave HMAC da identidade no banco de estado próprio (`remote/gateway.sqlite3`), impedindo que um usuário acesse áudios ou transcrições de outro usuário ou importados localmente. Um `recording_id` em estado `completed` não pode ser associado a identidades distintas.
+  5. Proteção de I/O, streaming e sanitização: exigência obrigatória de cabeçalho `Content-Length` (411 se ausente ou chunked), contagem de bytes em streaming abortando se exceder o limite (`max_upload_bytes`), timeout total da recepção do corpo (`request_timeout_seconds`, padrão 600s), checagem antecipada de disco livre com lock de upload serializando requisições no processo gateway contra concorrência TOCTOU (concorrência com importações locais no core não medida em hardware real), limpeza de arquivos parciais órfãos e sanitização de duplicatas (`DuplicateMediaError` ou colisões de integridade SHA-256 retornam 409 sanitizado sem expor o ID existente).
+  6. Idempotência transacional e falha fechada: suporte a `Idempotency-Key` no upload e na criação de jobs; `claim_upload` em estado `importing` recente retorna 409 busy; após crash ou expiração de claim em `importing`, caso a mídia já exista no core, a requisição falha fechada com 409 sanitizado para impedir IDOR entre identidades distintas (dada a impossibilidade de provar posse retrospectiva sem alteração estrutural no schema v4 do core). Exclusão de gravação no core resulta em 410 no agendamento de jobs, liberando a claim transacionalmente.
+- Motivo: permitir envio de áudios e leitura de transcrições a partir de dispositivos remotos de confiança sem violar as garantias de privacidade, sem expor rotas do sistema local e sem adicionar um segundo worker concorrente.
+- Consequências: operação validada por testes sintéticos determinísticos (83 testes dedicados do gateway e 63 regressões do core); o acesso em rede real depende do correto provisionamento de proxy autenticado do usuário (ex.: Tailscale), o qual permanece desativado nesta etapa; testes com mocks determinísticos não constituem prova de segurança de rede Tailscale em produção.
+
+## ADR-040 — Sessão privada temporária, controle seletivo Tailscale Serve e verificação fail-closed de processo (Etapa 8J-1)
+
+- Data: 2026-10-25
+- Status: aceita
+- Decisão: implementar o gerenciador de ciclo de vida de sessão temporária no módulo `remote_session.py` e comandos `local-transcriber remote-session start/status/stop`:
+  1. **Plano de Controle Estritamente Local**: a inicialização e o encerramento da sessão ocorrem apenas sob demanda explícita do usuário no notebook via CLI ou launcher PowerShell. Nenhuma rota de controle é exposta pelo gateway remoto.
+  2. **Tailscale Serve com Escopo Restrito**: o proxy reverso é configurado exclusivamente para a porta e URL do gateway (`tailscale serve --bg --https=443 http://127.0.0.1:8766`). O Tailscale Funnel é expressamente proibido e bloqueado. Ao encerrar a sessão, executa-se apenas a desativação seletiva da porta (`tailscale serve --https=443 off`). É terminantemente proibido o uso de `tailscale serve reset` (que destruiria configurações alheias do operador) ou `tailscale down`.
+  3. **Verificação de Propriedade de Processo (`ProcessVerifier`)**: o encerramento do processo do gateway valida mandatoriamente o timestamp de criação (`GetProcessTimes` no Windows) e os argumentos da linha de comando (`--session-id=<uuid>`). Se houver divergência (indicando reciclagem de PID pelo sistema operacional) ou o processo não pertencer à aplicação, a operação falha de forma fechada com `RemoteSessionOwnershipError`, recusando-se a finalizar o processo.
+  4. **Preservação do Core API e Jobs**: a sessão remota conecta-se apenas ao gateway (`8766`). O Core API (`8765`), o worker sequencial único e todos os jobs da fila SQLite são mantidos em execução normal e inalterados durante e após o ciclo da sessão remota.
+  5. **Rollback Transacional**: falhas no startup do Tailscale Serve revertem o processo do gateway e limpam o arquivo efêmero `session.json`.
+- Motivo: proporcionar uma experiência operacional previsível e segura para o usuário acessar o Local Transcriber de seu iPad na tailnet privada, prevenindo sequestro de processos, vazamento de portas globais ou interrupção acidental de jobs de transcrição locais.
+- Consequências: gerenciamento autônomo e temporário testado deterministamente com mocks sintéticos (19 testes em `tests/test_remote_session.py`); garantia de fail-closed e integridade de dados; validação física ponta a ponta programada para o gate 8J-B.
+
+## ADR-041 — Hardening pré-gate da sessão temporária remota e mitigação de vulnerabilidades (Etapa 8J-0)
+
+- Data: 2026-10-25
+- Status: aceita
+- Decisão: complementar e blindar a arquitetura de sessão temporária remota antes do fechamento do Gate 1 e do início da Etapa 2:
+  1. **Posse de Processo Estritamente Fail-Closed**: `ProcessVerifier` declara tipos formais do Win32 (`wintypes.HANDLE`, `wintypes.BOOL`, `wintypes.DWORD`, `wintypes.LPFILETIME`) eliminando riscos de truncamento de ponteiros de 64 bits em inteiros de 32 bits no Windows. Recusa metadados nulos (`expected_creation_time` ou `expected_marker` nulos falham fechado imediatamente) e valida argumentos via tokenização `shlex` exata, impedindo falsos positivos por mera substring.
+  2. **Inspeção Prévia Rigorosa de Serve e Bloqueio de Funnel**: `TailscaleCli.serve_status` opera com falha fechada para códigos de saída não-zero ou JSON inválido. A inicialização da sessão rejeita incondicionalmente Tailscale Funnel ativo/configurado e aborta se a porta HTTPS já estiver associada a qualquer rota externa.
+  3. **Desligamento Seletivo Condicionado a Prova de Mapping**: o comando `stop` só executa `tailscale serve --https=443 off` caso a consulta a `serve_status` comprove que a porta pertence estritamente ao backend da sessão local (`http://127.0.0.1:8766`). Se a rota apontar para serviço de terceiro ou estiver em estado desconhecido, o mapping externo é preservado.
+  4. **Status Estritamente Observacional**: `RemoteSessionManager.status` opera em modo somente leitura, nunca emitindo comandos de rede nem destruindo arquivos de sessão caso o PID não esteja ativo.
+  5. **Transacionalidade e Retenção de Metadados de Recuperação em `stop`**: a terminação do PID do gateway é verificada; caso o processo persista, o arquivo `session.json` é preservado para diagnóstico e auditoria, levantando `RemoteSessionError`.
+  6. **Serialização Concorrente**: implementado o context manager `_session_lock` (`.session.lock`) para prevenir colisões simultâneas de `start` e `stop`.
+  7. **Validação de Limites e Timeouts**: portas numéricas validadas estritamente na faixa 1-65535 e timeout fixado em 15 segundos em todas as chamadas do Tailscale.
+  8. **Readiness Probe Autenticado**: endpoint `GET /remote/v1/health` disponibilizado sob loopback e protegido pelo middleware de autenticação (exige `Host` e `Tailscale-User-Login`), expondo unicamente `{"status": "ok"}` sem vazamento de estado interno.
+  9. **Entrypoint Modular do CLI**: adicionada cláusula canônica `if __name__ == '__main__': sys.exit(main())` no `cli.py`, permitindo execução correta de subprocessos filhos com `python -m local_transcriber.cli`.
+- Motivo: fechar vulnerabilidades de confiabilidade levantadas na Seção 3 de `REMOTE_ACCESS_NEXT_IMPLEMENTATIONS.md` e atender integralmente aos critérios do Gate 1.
+- Consequências: resiliência aprimorada, 36 testes específicos de sessão remota e 319 testes na suíte completa aprovados com 100% de sucesso determinístico sem efeitos colaterais.
+
+## ADR-042 — Journal recuperável e posse integral de Serve (complemento da Etapa 1)
+
+- Data: 2026-10-25.
+- Status: implementação local para revisão do coordenador; não representa aprovação do gate.
+- Decisão: complementar ADR-040/041 com journal antes de efeitos (`prepared`, `gateway`,
+  `activating`, `active`), gravação temporária com flush/fsync e replace e rollback seletivo.
+  Falhas de consulta, off, confirmação posterior, persistência ou rollback conservam
+  recuperação. Stale usa o mesmo protocolo. Journal corrompido/incompleto não é ausência.
+- Posse de Serve: aceitar off somente quando TCP HTTPS, host DNS, única rota raiz e
+  único Proxy exato pertencerem à sessão inteira. Estruturas desconhecidas, serviços e
+  handlers adicionais bloqueiam mutações. Outras portas permanecem intocadas.
+- Consequências: estados sem PID comprovado exigem reconciliação manual; falhas de rede
+  podem manter gateway e mapping ativos para recuperação explícita. A trava da aplicação
+  não serializa clientes Tailscale externos nem garante durabilidade contra queda de energia.
+- Evidência: 101 testes de sessão, 194 focados e 384 na suíte completa; ctypes com HANDLE
+  alto e trava concorrente possuem testes próprios. A declaração anterior de cobertura
+  não substitui esses testes. [Relatório posterior](PHASE_08J_STAGE1_RECOVERY_COMPLEMENT_2026-10-25.md).
+- Próximo gate: revisão independente, seguida de nova autorização para qualquer Etapa 2.
+
+## Gate da Etapa 1 remota — revisão do coordenador (2026-10-25)
+
+Gate técnico aprovado para servir de base à Etapa 2, limitado à evidência sintética. A Etapa 0 foi o complemento corretivo da Etapa 1. O worker registrou 194 testes focados e 384 na suíte completa aprovados; o coordenador conferiu as correções no código e nos testes, sem reexecutar a suíte. Homologação física Tailscale/iPad permanece pendente. Recuperação de journal incompleto pode exigir reconciliação manual e não há CAS contra alterações externas no Serve. A Etapa 2 não foi iniciada e exige nova autorização explícita.

@@ -1152,3 +1152,28 @@ def test_core_api_remains_loopback_and_has_no_remote_routes(runtime: SimpleNames
         assert client.get(f"{REMOTE_PREFIX}/session").status_code == 404
         assert client.get("/api/health", headers={"host": HOST}).status_code == 400
         assert client.app.state.database.schema_version() == 4
+
+
+def test_gateway_health_readiness_probe(gateway: TestClient) -> None:
+    response = gateway.get(f"{REMOTE_PREFIX}/health", headers=_headers())
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+    unauth = gateway.get(f"{REMOTE_PREFIX}/health", headers={"host": HOST})
+    assert unauth.status_code == 401
+
+    funnel = gateway.get(
+        f"{REMOTE_PREFIX}/health",
+        headers={
+            "host": HOST,
+            "tailscale-user-login": IDENTITY,
+            "tailscale-funnel-request": "true",
+        },
+    )
+    assert funnel.status_code == 403
+
+    bad_host = gateway.get(
+        f"{REMOTE_PREFIX}/health",
+        headers={"host": "attacker.example.com", "tailscale-user-login": IDENTITY},
+    )
+    assert bad_host.status_code == 400

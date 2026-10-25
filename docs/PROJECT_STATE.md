@@ -154,3 +154,23 @@ status success em runner windows-latest independente, com Python 3.13 x64:
 instalacao sem extra dev/modelos, pacote/assets, HTTP e SQLite sintetico aprovados.
 Nao e prova de inferencia/qualidade, todo hardware ou outros sistemas operacionais.
 [Validacao remota e limites](PHASE_08H_POSTPUBLICATION_WINDOWS_VALIDATION_2026-10-13.md).
+
+## Etapa 8J-A: Gateway Privado FastAPI em Loopback para Ingestão Remota (2026-10-24) — estado atual
+
+Implementado o gateway FastAPI dedicado (`remote_gateway.py`), desativado por padrão (configuração em `%LOCALAPPDATA%\LocalTranscriber\remote\gateway.json`) e com binding restrito exclusivamente ao loopback `127.0.0.1` (porta padrão `8766`, configurável via CLI), para viabilizar o envio de áudio e acompanhamento de jobs a partir de dispositivos móveis autorizados (ex.: iPad via Tailscale) sob o prefixo `/remote/v1`, sem expor a API de gerenciamento local nem o sintetizador LLM (Ollama/ChatGPT).
+
+O gateway possui banco de estado SQLite dedicado (`%LOCALAPPDATA%\LocalTranscriber\remote\gateway.sqlite3`) sem modificar o schema v4 do core database. Implementa:
+1. Autenticação mandatória pelo cabeçalho `Tailscale-User-Login` fornecido por proxy reverso local confiável contra allowlist estática (`allowed_identities`); cabeçalho ausente ou vazio resulta em 401; duplicado ou não autorizado resulta em 403; requisições contendo `Tailscale-Funnel-Request` são rejeitadas com 403.
+2. Binding público rejeitado (403) no nível do middleware HTTP.
+3. Exigência estrita de `Host` (bare hostname em allowlist, rejeitando porta/path/query/fragment/userinfo com 400) e `Origin` HTTPS exato em mutações (sem barra final ou porta inesperada com 403), sem CORS, com cookie contendo `session_id` aleatório (`SameSite=Strict`, `HttpOnly`, `Secure` no caminho `/remote/v1`) e token CSRF HMAC-SHA256 vinculado à sessão e à identidade, derivado de segredo `remote/csrf.key` protegido com ACL NTFS nativa no Windows (`icacls`), validada e reaplicada no startup.
+4. Prevenção de IDOR: registros e jobs são escopados pela chave HMAC da identidade no banco do gateway, proibindo a associação de `recording_id` completado a identidades distintas.
+5. Proteção de streaming e concorrência: cabeçalho `Content-Length` obrigatório (411 se ausente ou chunked), contagem de bytes em streaming abortando com 413 ao exceder limites, timeout total da recepção do corpo (`request_timeout_seconds`, padrão 600s), checagem antecipada de espaço livre em disco (`min_free_disk_bytes`) com lock de upload assíncrono serializando o fluxo dentro do gateway para mitigar concorrência TOCTOU (concorrência com importações locais simultâneas no core não medida em hardware real), e sanitização de `DuplicateMediaError` ou colisões SHA-256 retornando 409 genérico.
+6. Idempotência transacional e falha fechada: suporte a `Idempotency-Key`; `claim_upload` em estado `importing` recente retorna 409 busy; em retries pós-crash/timeout de claim `importing`, caso a mídia já exista no core repository, a requisição falha fechada com 409 sanitizado prevenindo IDOR (já que o schema v4 do core não armazena a identidade do gateway para provar a posse sem migração de banco); exclusão de gravação no core resulta em 410 no agendamento de jobs, liberando a claim no bloco `finally`.
+7. CLI com comando `local-transcriber remote-gateway serve --host 127.0.0.1 --port 8766`.
+8. Suíte de 83 testes determinísticos dedicados em `tests/test_remote_gateway.py` (100% aprovados) e 63 testes principais de regressão do core aprovados, com fixture de socket compatível com Windows.
+9. Portão de segurança futuro: a segurança física em rede real depende do provisionamento de proxy privado (Tailscale), que não foi ativado nem exposto publicamente nesta etapa.
+[Relatório da Etapa 8J-A](PHASE_08J_REMOTE_GATEWAY_2026-10-24.md).
+
+## Gate da Etapa 1 remota — revisão do coordenador (2026-10-25)
+
+Gate técnico aprovado para servir de base à Etapa 2, limitado à evidência sintética. A Etapa 0 foi o complemento corretivo da Etapa 1. O worker registrou 194 testes focados e 384 na suíte completa aprovados; o coordenador conferiu as correções no código e nos testes, sem reexecutar a suíte. Homologação física Tailscale/iPad permanece pendente. Recuperação de journal incompleto pode exigir reconciliação manual e não há CAS contra alterações externas no Serve. A Etapa 2 não foi iniciada e exige nova autorização explícita.

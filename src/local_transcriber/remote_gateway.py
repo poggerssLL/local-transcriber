@@ -819,6 +819,11 @@ def create_remote_gateway_app(
             csrf_token=token, expires_at=expires, max_upload_bytes=settings.max_upload_bytes
         )
 
+    @app.get(f"{REMOTE_PREFIX}/health")
+    def health_check() -> dict[str, str]:
+        """Minimal authenticated loopback readiness probe; exposes zero internal state."""
+        return {"status": "ok"}
+
     def _existing_recording(row: sqlite3.Row) -> Recording:
         recording = repository.get_recording(row["recording_id"])
         if recording is None:

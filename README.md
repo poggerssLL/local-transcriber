@@ -321,3 +321,21 @@ Manutenção 8C: 142 testes Python, Ruff global e format --check aprovados. Test
 da fila separam contagem de retries de expiração com relógio controlado.
 Versão/schema preservados; nenhuma inferência real nova.
 [Relatório](docs/PHASE_08C_STYLE_AND_HEARTBEAT_TESTS_2026-10-05.md).
+
+## Recuperação da sessão remota
+
+A sessão privada está implementada localmente, com complemento de recuperação aguardando
+revisão independente. Se `remote-session stop` falhar ao consultar ou desligar o Serve,
+o comando retorna erro e conserva o estado. Após resolver a causa, repetir `stop` permite
+retomar a limpeza com nova verificação de posse. Não apagar o journal para contornar erros.
+
+Um crash com estado `prepared` incompleto ou arquivo corrompido exige reconciliação manual
+local antes de iniciar outra sessão. Configuração de terceiros ou desconhecida na porta
+Serve é recusada; não editar Serve por outro cliente durante a sessão. Os testes desta
+entrega são sintéticos, sem homologação em Tailscale/iPad real. Consulte o
+[complemento e limites de recuperação](docs/PHASE_08J_STAGE1_RECOVERY_COMPLEMENT_2026-10-25.md).
+A Etapa 2 exige revisão do gate e nova autorização explícita.
+
+## Gate da Etapa 1 remota — revisão do coordenador (2026-10-25)
+
+Gate técnico aprovado para servir de base à Etapa 2, limitado à evidência sintética. A Etapa 0 foi o complemento corretivo da Etapa 1. O worker registrou 194 testes focados e 384 na suíte completa aprovados; o coordenador conferiu as correções no código e nos testes, sem reexecutar a suíte. Homologação física Tailscale/iPad permanece pendente. Recuperação de journal incompleto pode exigir reconciliação manual e não há CAS contra alterações externas no Serve. A Etapa 2 não foi iniciada e exige nova autorização explícita.

@@ -114,6 +114,39 @@ def build_parser() -> argparse.ArgumentParser:
     remote_serve = remote_actions.add_parser("serve")
     remote_serve.add_argument("--host", default="127.0.0.1")
     remote_serve.add_argument("--port", type=int, default=8766)
+    remote_serve.add_argument("--session-id", default=None)
+
+    session = commands.add_parser(
+        "remote-session",
+        help="manage temporary private remote access via Tailscale Serve",
+    )
+    session_actions = session.add_subparsers(dest="action", required=True)
+    session_start = session_actions.add_parser(
+        "start", help="start a temporary private remote session"
+    )
+    session_start.add_argument(
+        "--port", type=int, default=8766, help="gateway loopback port (default: 8766)"
+    )
+    session_start.add_argument(
+        "--https-port", type=int, default=443, help="Tailscale HTTPS port (default: 443)"
+    )
+    session_start.add_argument(
+        "--background", action="store_true", help="run in background instead of foreground"
+    )
+    session_start.add_argument(
+        "--no-check-core", action="store_true", help="do not require core API to be running"
+    )
+    session_start.add_argument(
+        "--timeout", type=float, default=30.0, help="startup timeout in seconds"
+    )
+
+    session_status = session_actions.add_parser("status", help="show remote session status")
+    session_status.add_argument("--json", action="store_true", help="output status in JSON format")
+
+    session_stop = session_actions.add_parser("stop", help="stop the active remote session")
+    session_stop.add_argument(
+        "--force", action="store_true", help="force terminate if graceful shutdown times out"
+    )
     return parser
 
 
@@ -210,6 +243,32 @@ def run(args: argparse.Namespace, *, out: TextIO, err: TextIO) -> int:
             proxy_headers=False,
             server_header=False,
         )
+        return 0
+    if args.command == "remote-session":
+        if args.action == "start":
+            if not 1 <= args.port <= 65535:
+                raise ValueError("port must be between 1 and 65535")
+            if not 1 <= args.https_port <= 65535:
+                raise ValueError("https-port must be between 1 and 65535")
+        config = AppConfig.from_env()
+        config.paths.ensure_directories()
+        from .remote_session import RemoteSessionManager
+
+        manager = RemoteSessionManager(config.paths)
+        if args.action == "start":
+            return manager.cli_start(
+                port=args.port,
+                https_port=args.https_port,
+                background=args.background,
+                check_core=not args.no_check_core,
+                timeout=args.timeout,
+                out=out,
+                err=err,
+            )
+        if args.action == "status":
+            return manager.cli_status(as_json=args.json, out=out)
+        if args.action == "stop":
+            return manager.cli_stop(force=args.force, out=out, err=err)
         return 0
     config, repository, library = _context()
     if args.command == "config":
@@ -379,3 +438,7 @@ def main(argv: list[str] | None = None) -> int:
     except (KeyError, OSError, RuntimeError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

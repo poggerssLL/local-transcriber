@@ -180,3 +180,34 @@ def test_cli_queue_lifecycle_and_empty_worker_once(tmp_path, monkeypatch) -> Non
     assert '"phase": "queued"' in invoke(["jobs", "show", job_id])[1]
     assert "cancelled\tcompleted" in invoke(["jobs", "cancel", job_id])[1]
     assert "pending\tqueued" in invoke(["jobs", "retry", job_id])[1]
+
+
+def test_cli_module_execution_via_subprocess() -> None:
+    import subprocess
+    import sys
+
+    res = subprocess.run(
+        [sys.executable, "-m", "local_transcriber.cli", "--version"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert res.returncode == 0
+    assert "local-transcriber" in res.stdout
+
+    res_help = subprocess.run(
+        [sys.executable, "-m", "local_transcriber.cli", "--help"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert res_help.returncode == 0
+    assert "remote-session" in res_help.stdout
+
+
+def test_cli_remote_session_rejects_invalid_ports() -> None:
+    with pytest.raises(ValueError, match="port must be between 1 and 65535"):
+        invoke(["remote-session", "start", "--port", "0"])
+
+    with pytest.raises(ValueError, match="https-port must be between 1 and 65535"):
+        invoke(["remote-session", "start", "--https-port", "70000"])

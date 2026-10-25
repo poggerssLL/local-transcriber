@@ -251,3 +251,75 @@ status success em runner windows-latest independente, com Python 3.13 x64:
 instalacao sem extra dev/modelos, pacote/assets, HTTP e SQLite sintetico aprovados.
 Nao e prova de inferencia/qualidade, todo hardware ou outros sistemas operacionais.
 [Validacao remota e limites](PHASE_08H_POSTPUBLICATION_WINDOWS_VALIDATION_2026-10-13.md).
+
+## Gateway remoto restrito a testes sintéticos / ausência de validação em rede Tailscale real
+
+- Descrição: a implementação da Etapa 8J-A do gateway privado (`remote_gateway.py`) foi validada
+  exclusivamente por meio de 83 testes sintéticos com mocks determinísticos em loopback local
+  (`127.0.0.1`). Não foi ativado proxy Tailscale Serve ou Funnel, nem foi estabelecida conexão real
+  com dispositivo cliente (iPad) ou tráfego em rede privada externa.
+- Impacto: testes sintéticos com cabeçalhos simulados não constituem prova de segurança contra
+  falsificação em ambiente de rede com proxies desconfigurados. A segurança efetiva depende de o
+  operador configurar um proxy que garanta a sanitização do cabeçalho `Tailscale-User-Login`
+  antes de encaminhar requisições ao loopback do notebook.
+- Situação atual: comportamento seguro por padrão (gateway desligado, bind restrito a 127.0.0.1,
+  `proxy_headers=False` no Uvicorn). O software não abre nem expõe portas externas.
+- Possível direção futura: portão de validação física com Tailscale real em dispositivo controlado
+  antes de autorizar uso regular.
+- Fase provável: Etapa 8J-B / validação física.
+
+## Ausência de interface web no gateway remoto (Etapa 8J-A)
+
+- Descrição: o gateway privado expõe exclusivamente endpoints REST de sessão, upload e jobs sob o prefixo `/remote/v1`
+  (`GET /remote/v1/session`, `POST /remote/v1/uploads`, `POST /remote/v1/jobs`, `GET /remote/v1/jobs/{id}`,
+  `GET /remote/v1/jobs/{id}/transcript`), sem servir a interface web vanilla do Local Transcriber.
+- Impacto: o acesso remoto pelo iPad deve ocorrer via atalhos do iOS, scripts de automação ou cliente
+  HTTP compatível; a interface visual principal continua acessível apenas localmente na porta 8765.
+- Situação atual: estritamente conforme o escopo da Etapa 8J-A (ingestão e leitura sem UI).
+- Possível direção futura: disponibilização opcional de página web mínima para dispositivos móveis
+  em etapas futuras caso demandado.
+- Fase provável: evolução futura sob escopo próprio.
+
+## Idempotência de recuperação pós-crash do gateway restrita pela imutabilidade do schema core v4 (Etapa 8J-A)
+
+- Descrição: caso ocorra um crash fatal do processo exatamente após o commit da importação de mídia no banco core (`recordings`) e antes da atualização de estado no banco do gateway (`remote/gateway.sqlite3`), uma tentativa subsequente de retry com a mesma `Idempotency-Key` falhará fechada com código 409 ("this media already exists in the notebook library") em vez de retornar 200 com a gravação associada.
+- Impacto: a tabela `recordings` do schema SQLite v4 central não possui campos de metadados para armazenar chaves de gateway ou hashes de identidade. Logo, ao detectar a presença do SHA-256 na biblioteca central após um crash, o sistema não pode comprovar sem ambiguidade se aquela mídia foi importada pelo autor da requisição ou por outra identidade/operação local concorrente. Para erradicar qualquer vulnerabilidade de IDOR, o gateway recusa vincular a posse retrospectivamente e falha fechado com 409 sanitizado.
+- Situação atual: comportamento seguro por padrão (fail-closed contra IDOR), amplamente testado de forma determinística na suíte de testes.
+- Possível direção futura: eventual inclusão de coluna de proveniência de gateway em futura migração planejada de schema (v5).
+- Fase provável: evolução de schema em fase futura dedicada.
+
+## Validação de sessão remota e Tailscale Serve restrita a mocks sintéticos (Etapa 8J-1 e Etapa 0)
+
+- Descrição: o complemento posterior possui 101 testes de sessão, com runners/inspetores sintéticos, callbacks ctypes para HANDLE de 64 bits e trava real do SO em concorrência start/start, start/stop, stop/start e stop/stop. São 194 testes focados e 384 na suíte completa aprovados. Não foi executado `tailscale.exe` nem ativado tráfego real na tailnet durante esta entrega.
+- Impacto: em ambientes reais, a correta descoberta de nós e término TLS dependem de o operador possuir o Tailscale instalado e conectado à sua conta com MagicDNS ativo.
+- Situação atual: falhas de consulta/off e limpeza stale preservam o journal; persistência antecede spawn e ativação; estruturas Serve desconhecidas ou com terceiros bloqueiam mutações. O relatório histórico de hardening declarou cobertura de concorrência/ctypes sem testes específicos suficientes; a evidência posterior está no [complemento](PHASE_08J_STAGE1_RECOVERY_COMPLEMENT_2026-10-25.md). Gate ainda pendente de revisão independente.
+- Possível direção futura: validação física ponta a ponta na Etapa 8J-B / Etapa 5.
+- Fase provável: Etapa 8J-B / Etapa 5 (validação física).
+
+## Recuperação conservadora do journal remoto e concorrência externa
+
+- Um crash entre spawn e persistência de PID pode deixar `prepared` sem prova completa
+  de processo. O marcador permanece no journal, mas `start/stop` bloqueiam e exigem
+  reconciliação manual local. Estado corrompido ou temporário sem journal também é
+  preservado; não apagar arquivos para contornar o bloqueio sem verificar processo/rede.
+- Configurações Serve desconhecidas, serviços, múltiplos hosts/rotas, handlers estáticos
+  ou forwarding TCP na porta escolhida são recusados. É uma restrição conservadora;
+  não há tentativa de normalizar ou apagar configuração de terceiros.
+- A trava serializa somente esta aplicação. O CLI Tailscale não oferece aqui uma
+  transação/CAS contra alterações externas entre inspeção e comando. Não editar Serve
+  simultaneamente por outros clientes. Queda de energia e recuperação física não foram
+  homologadas; fsync/replace e falhas de processo foram exercitados sinteticamente.
+- Próxima ação: revisão independente do complemento. Etapas posteriores exigem nova
+  autorização explícita; esta entrega não homologa operação móvel real.
+
+## Matéria fixa no arquivo de configuração do gateway na Etapa 1 da Fase 8J
+
+- Descrição: na Etapa 1, todos os uploads recebidos pelo gateway são associados ao `subject_id` estático definido em `%LOCALAPPDATA%\LocalTranscriber\remote\gateway.json`.
+- Impacto: o cliente móvel não pode selecionar dinamicamente a matéria de destino no momento do envio.
+- Situação atual: comportamento planejado para a Etapa 1 conforme `docs/REMOTE_ACCESS_INTEGRATION_PLAN.md`.
+- Possível direção futura: implementação da Etapa 2 com allowlist de matérias autorizadas e rota `GET /remote/v1/subjects`.
+- Fase provável: Fase 8J — Etapa 2.
+
+## Gate da Etapa 1 remota — revisão do coordenador (2026-10-25)
+
+Gate técnico aprovado para servir de base à Etapa 2, limitado à evidência sintética. A Etapa 0 foi o complemento corretivo da Etapa 1. O worker registrou 194 testes focados e 384 na suíte completa aprovados; o coordenador conferiu as correções no código e nos testes, sem reexecutar a suíte. Homologação física Tailscale/iPad permanece pendente. Recuperação de journal incompleto pode exigir reconciliação manual e não há CAS contra alterações externas no Serve. A Etapa 2 não foi iniciada e exige nova autorização explícita.

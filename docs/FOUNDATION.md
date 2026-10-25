@@ -574,3 +574,57 @@ status success em runner windows-latest independente, com Python 3.13 x64:
 instalacao sem extra dev/modelos, pacote/assets, HTTP e SQLite sintetico aprovados.
 Nao e prova de inferencia/qualidade, todo hardware ou outros sistemas operacionais.
 [Validacao remota e limites](PHASE_08H_POSTPUBLICATION_WINDOWS_VALIDATION_2026-10-13.md).
+
+## Etapa 8J-A: Gateway Privado FastAPI em Loopback para Ingestão Remota (2026-10-24)
+
+Gateway FastAPI dedicado (`remote_gateway.py`), desativado por padrão (configuração em `%LOCALAPPDATA%\LocalTranscriber\remote\gateway.json`) e com binding restrito ao loopback `127.0.0.1` (porta padrão `8766`, configurável na CLI), projetado para ingestão segura de áudio e acompanhamento de jobs a partir de dispositivos remotos autorizados (ex.: iPad via Tailscale) sem expor a API core ou a máquina local:
+- **Separação de limites**: aplicação FastAPI independente (`remote_gateway.py`), executada em porta distinta (padrão `8766`, configurável via CLI, sempre em `127.0.0.1`), sob o prefixo `/remote/v1`, isolada da core API (`8765`). Rotas internas, documentação interativa (Swagger/ReDoc), CORS e endpoints de sumarização permanecem completamente inacessíveis pelo gateway.
+- **Identidade e Proxy Confiável**: validação estrita do cabeçalho de identidade (`Tailscale-User-Login`) injetado pelo proxy reverso local de confiança. Cabeçalho ausente ou vazio resulta em 401; cabeçalho duplicado ou identidade não autorizada resulta em 403; requisições com `Tailscale-Funnel-Request` são rejeitadas com 403. Uvicorn executa com `proxy_headers=False` e `server_header=False`. Binding público rejeitado (403) no nível do middleware HTTP.
+- **Proteção CSRF e Origem**: exigência mandatória de correspondência de `Host` (bare hostname estritamente em allowlist, rejeitando porta, path, query, fragment ou userinfo) e `Origin` HTTPS exato (sem barra final ou porta inesperada); sessão com cookie contendo `session_id` aleatório (`SameSite=Strict`, `HttpOnly`, `Secure` no caminho `/remote/v1`) e token CSRF assinado por HMAC-SHA256 vinculado à sessão e à identidade, derivado de segredo `%LOCALAPPDATA%\LocalTranscriber\remote\csrf.key` com ACL restrita do Windows (`icacls`), validada e reaplicada no startup.
+- **Mitigação de IDOR**: banco de estado SQLite dedicado (`%LOCALAPPDATA%\LocalTranscriber\remote\gateway.sqlite3`), preservando o schema v4 do core database. Gravações e jobs são indexados pela chave HMAC da identidade; associação de um `recording_id` completado a identidades distintas é expressamente proibida (inclusive via índice parcial UNIQUE em banco).
+- **Defesa de I/O, Streaming e Concorrência**: cabeçalho `Content-Length` obrigatório (411 se ausente ou chunked); contagem estrita de bytes recebidos durante o streaming abortando com 413 caso exceda o tamanho declarado ou `max_upload_bytes`; timeout total da recepção do corpo (`request_timeout_seconds`, padrão 600s); checagem preventiva de espaço em disco (`min_free_disk_bytes`) com lock de upload serializando requisições no processo gateway contra concorrência TOCTOU (concorrência com importações simultâneas locais no core não medida em hardware real); captura de `DuplicateMediaError` ou colisões de integridade SHA-256 no core retornando 409 sanitizado; limpeza de arquivos `.part` órfãos.
+- **Idempotência Transacional e Falha Fechada**: suporte a `Idempotency-Key` no upload e na criação de jobs; `claim_upload` em estado `importing` recente retorna 409 busy; após crash ou expiração de claim em `importing`, caso a mídia já exista no core, a requisição falha fechada com 409 sanitizado para impedir IDOR entre identidades distintas (dada a impossibilidade de provar posse retrospectiva sem alteração estrutural no schema v4 do core). Exclusão de gravação no core resulta em 410 no agendamento de jobs, liberando a claim transacionalmente.
+- **CLI**: comando `local-transcriber remote-gateway serve --host 127.0.0.1 --port 8766`.
+- **Validação Sintética**: 83 testes sintéticos dedicados (e 63 regressões do core) cobrindo os contratos de segurança definidos, limites de concorrência, ciclo de vida de upload e job, recuperação de falhas e sanitização de logs. A suíte determinística com a fixture de socket compatível com Windows assegura operação offline completa.
+- **Portão de Segurança Futuro**: a segurança física em rede real depende do provisionamento e autenticação do proxy privado (ex.: Tailscale), o qual não foi ativado nem exposto publicamente nesta etapa.
+
+## Etapa 8J — Etapa 1: Sessão Privada Temporária e Orquestração Tailscale Serve (2026-10-25)
+
+Ciclo de vida de sessão temporária controlada pelo usuário via CLI ou launcher local, orquestrando o proxy reverso Tailscale Serve e o gateway privado em loopback com garantia de reversão seletiva e fail-closed:
+- **Separação Arquitetural do Core**: o Core API permanece estritamente na porta loopback `8765`, executando o único worker sequencial de transcrição. O gerenciador de sessão remota nunca instancia um segundo worker nem toma posse do core server.
+- **Plano de Controle Local**: operações de sessão (`remote-session start/status/stop`) operam estritamente no terminal do notebook e nunca são expostas através do gateway ou Tailscale.
+- **Encapsulamento do Tailscale Serve**: o cliente `TailscaleCli` descobre o executável local, valida o status conectado e ativa o proxy reverso pontual (`tailscale serve --bg --https=443 http://127.0.0.1:8766`). O Tailscale Funnel é terminantemente proibido. Ao encerrar a sessão, executa exclusivamente a desativação do mapeamento (`tailscale serve --https=443 off`), sendo proibido o uso de comandos globais destrutivos como `tailscale serve reset` ou `tailscale down`.
+- **Verificação Fail-Closed de Propriedade de Processo (`ProcessVerifier`)**: para mitigar o risco de reciclagem de PID pelo sistema operacional, o término de processos exige validação cruzada do timestamp de criação (`GetProcessTimes` no Windows) e argumentos da linha de comando contendo o marcador da sessão (`--session-id=<uuid>`). Em caso de dúvida ou conflito, a operação falha de forma fechada sem afetar processos alheios.
+- **Recuperação na Inicialização**: `remote/session.json` registra `prepared` antes do spawn, `gateway` após identificar o processo, `activating` antes do Serve e `active` após verificar o mapping. Gravação temporária com flush/fsync e replace antecede os efeitos. Falhas revertem seletivamente; se a rede, a posse ou o rollback forem incertos, o journal e temporários necessários permanecem.
+- **Preservação de Jobs e Serviços**: o encerramento da sessão remota preserva integralmente o Core API em execução e quaisquer jobs da fila SQLite (em andamento, pendentes ou concluídos).
+- **Validação e Testes**: 101 testes de sessão; runners/processos sintéticos, callbacks ctypes com HANDLE de 64 bits e exclusão concorrente com trava real do SO. São 194 testes focados com CLI/gateway. Nenhuma execução real de Tailscale ou dispositivo móvel.
+- **Documentação de Referência**: plano de evolução contratado em `docs/REMOTE_ACCESS_INTEGRATION_PLAN.md`, relatório técnico em `docs/PHASE_08J_STAGE1_REMOTE_SESSION_2026-10-25.md` e relatório de blindagem em `docs/PHASE_08J_STAGE1_HARDENING_2026-10-25.md`.
+
+### Hardening Pré-Gate da Sessão Remota (Etapa 0 - 2026-10-25)
+- **Tipagem Win32 64-bit e Fail-Closed Rigoroso**: `ProcessVerifier` declara tipos Win32 formais (`wintypes.HANDLE`, `wintypes.BOOL`, `wintypes.DWORD`, `wintypes.LPFILETIME`) prevenindo truncamento de ponteiros de 64 bits. Rejeita metadados nulos e exige conferência exata do token de comando `--session-id` via tokenização `shlex` (recusando meras substrings) e do timestamp de criação.
+- **Inspeção Estrita de Serve e Bloqueio de Funnel**: `serve_status` opera com falha fechada para erros de execução e JSON inválido. A inicialização é abortada se o Tailscale Funnel estiver ativo ou se a porta HTTPS já estiver associada a outro backend. O comando `stop` só desativa o proxy se comprovadamente mapeado para o gateway da sessão.
+- **Observabilidade Pura em `status`**: a inspeção de status tornou-se estritamente de somente leitura; a ausência de PID não desativa proxies nem remove arquivos de sessão.
+- **Transacionalidade e Recuperação em `stop`**: o journal só é removido após confirmar ausência do mapping e término do processo. Erros de consulta, off, leitura posterior ou terminação preservam recuperação; a limpeza stale usa o mesmo protocolo, sem ignorar erros.
+- **Serialização Concorrente**: context manager `_session_lock` (`.session.lock`) protege execuções paralelas de `start` e `stop`.
+- **Sonda de Prontidão Autenticada**: endpoint minimalista `GET /remote/v1/health` valida inicialização do gateway no loopback sob cabeçalhos autenticados de identidade e host, sem expor dados internos nem permitir bypass de segurança.
+- **Entrypoint Modular do CLI**: adicionada cláusula `if __name__ == '__main__': sys.exit(main())` garantindo execução de subprocessos filhos com `python -m local_transcriber.cli`.
+
+### Complemento posterior de recuperação (2026-10-25)
+
+A prova de posse de Serve exige TCP HTTPS exclusivo e exatamente um host DNS da sessão,
+uma rota raiz e um handler Proxy exato. Estruturas inválidas/desconhecidas, serviços,
+TCP forwarding, conteúdo estático, múltiplos hosts e rotas são recusados; ausência de
+Proxy não prova porta livre. Portas distintas são preservadas. Resposta vazia ou JSON
+não objeto não prova ausência de configuração. Após off, uma nova consulta confirma
+o resultado antes de limpar o journal.
+
+Se o processo controlador cair entre spawn e persistência do PID, `prepared` conserva
+o marcador, mas exige reconciliação manual sem matar PIDs por suposição. Estado
+corrompido e temporário sem journal também bloqueiam mutações. A trava serializa os
+comandos desta aplicação; não é transação/CAS com outros clientes Tailscale nem prova
+de durabilidade em queda de energia. Não alterar Serve por outro cliente durante a sessão.
+Gate aguardando revisão independente; [relatório posterior](PHASE_08J_STAGE1_RECOVERY_COMPLEMENT_2026-10-25.md).
+
+## Gate da Etapa 1 remota — revisão do coordenador (2026-10-25)
+
+Gate técnico aprovado para servir de base à Etapa 2, limitado à evidência sintética. A Etapa 0 foi o complemento corretivo da Etapa 1. O worker registrou 194 testes focados e 384 na suíte completa aprovados; o coordenador conferiu as correções no código e nos testes, sem reexecutar a suíte. Homologação física Tailscale/iPad permanece pendente. Recuperação de journal incompleto pode exigir reconciliação manual e não há CAS contra alterações externas no Serve. A Etapa 2 não foi iniciada e exige nova autorização explícita.

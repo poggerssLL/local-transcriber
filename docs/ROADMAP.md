@@ -111,3 +111,41 @@ status success em runner windows-latest independente, com Python 3.13 x64:
 instalacao sem extra dev/modelos, pacote/assets, HTTP e SQLite sintetico aprovados.
 Nao e prova de inferencia/qualidade, todo hardware ou outros sistemas operacionais.
 [Validacao remota e limites](PHASE_08H_POSTPUBLICATION_WINDOWS_VALIDATION_2026-10-13.md).
+
+## Etapa 8J-A — Gateway Privado FastAPI em Loopback para Ingestão Remota (2026-10-24)
+
+- **Status**: Concluída (validada sinteticamente com 83 testes determinísticos).
+- **Entregas**:
+  - Módulo `src/local_transcriber/remote_gateway.py` com aplicação FastAPI desacoplada da core API, desligada por padrão (`remote/gateway.json`), vinculada exclusivamente ao loopback `127.0.0.1` (porta padrão `8766`, configurável via CLI) sob o prefixo `/remote/v1`.
+  - Banco de estado `remote/gateway.sqlite3` gerenciando idempotência e escopo de propriedade sem alterações no schema v4 do core database.
+  - Autenticação e autorização por cabeçalho `Tailscale-User-Login` contra allowlist (401 se ausente, 403 se não autorizado/duplicado; bloqueio de `Tailscale-Funnel-Request`), prevenindo IDOR em gravações e jobs.
+  - Validação estrita de `Host` bare e `Origin` HTTPS exato, cookie de sessão com `session_id` aleatório e token CSRF assinado por HMAC-SHA256 derivado de segredo `remote/csrf.key` protegido com ACL Windows (`icacls`).
+  - Defesa em profundidade contra DoS de upload: `Content-Length` obrigatório (411), contagem estrita de bytes de fato recebidos no streaming, timeout da recepção do corpo (`request_timeout_seconds`), checagem antecipada de disco livre com lock serializando uploads no gateway contra TOCTOU interno (concorrência com core não medida em hardware real), e sanitização de `DuplicateMediaError` ou colisões SHA.
+  - Idempotência com falha fechada segura (409) em caso de ambiguidade pós-crash quando a mídia já existe no core, prevenindo IDOR. Resposta 410 com liberação transacional de claim para gravações deletadas.
+  - Comando CLI `local-transcriber remote-gateway serve --host 127.0.0.1 --port 8766`.
+  - Suíte de 83 testes determinísticos em `tests/test_remote_gateway.py` (e 63 regressões do core) cobrindo segurança, I/O, concorrência, idempotência com recuperação pós-falha e sanitização de logs.
+- **Próxima etapa (8J Etapa 1)**: Ciclo de vida da sessão privada temporária, controle Tailscale Serve e verificação fail-closed de propriedade de processo.
+[Relatório da Etapa 8J-A](PHASE_08J_REMOTE_GATEWAY_2026-10-24.md).
+
+## Etapa 8J — Etapa 1: Sessão Privada Temporária e Orquestração Tailscale Serve (2026-10-25)
+
+- **Status**: Complemento de recuperação implementado localmente; gate pendente de revisão independente do coordenador. 101 testes de sessão, 8 de CLI e 85 de gateway aprovados (194 focados). Evidência sintética, sem homologação física.
+- **Entregas**:
+  - Plano arquitetural e contrato revisável em `docs/REMOTE_ACCESS_INTEGRATION_PLAN.md` cobrindo fronteiras, invariantes e sequenciamento das etapas 1 a 3.
+  - Módulo `src/local_transcriber/remote_session.py` com `TailscaleCli`, `ProcessVerifier` e `RemoteSessionManager`.
+  - Hardening pré-gate da Etapa 0: ProcessVerifier fail-closed com Win32 ctypes 64 bits e correspondência exata de argumentos de linha de comando; serve_status estrito e recusa incondicional de Funnel e conflitos prévios; status observacional; stop transacional com preservação de arquivo de estado em falhas; serialização via trava `.session.lock`; validação numérica de portas (1-65535); probe de prontidão autenticado no gateway (`GET /remote/v1/health`); entrypoint modular `python -m local_transcriber.cli`.
+  - Comandos CLI operacionais: `local-transcriber remote-session start` (foreground supervisionado com parada limpa via Ctrl+C ou `--background`), `status` (tabular ou `--json`) e `stop` (idempotente e seletivo).
+  - Launcher PowerShell opcional `scripts/start-remote-session.ps1` com verificação de ambiente virtual e porta.
+  - Orquestração de proxy reverso via Tailscale Serve estritamente na tailnet (Tailscale Funnel proibido e bloqueado), com desligamento seletivo pontual (`tailscale serve --https=443 off`) condicionado à comprovação do mapping próprio.
+  - Preservação total do Core API (porta `8765`, consumidor único da fila SQLite) e dos jobs recebidos durante a abertura e encerramento de sessões remotas.
+  - Journal antes de spawn/ativação; rollback seletivo; retenção de recuperação em falha de consulta/off/persistência/rollback; inspeção completa da porta Serve e regressões de concorrência/HANDLE 64-bit.
+  - [Complemento posterior](PHASE_08J_STAGE1_RECOVERY_COMPLEMENT_2026-10-25.md) preserva os relatórios anteriores e corrige a interpretação de fechamento do gate.
+- **Próximas etapas (dependem de revisão do complemento e nova autorização explícita)**:
+  - **Etapa 2**: Seleção remota de matérias com allowlist (`GET /remote/v1/subjects`), rate limiting bounded por `identity_hash` e preservação de barreiras de segurança.
+  - **Etapa 3**: Protocolo de upload particionado (*resumable chunks*) com banco isolado no gateway (`gateway.sqlite3`), mantendo o schema v4 do core imutável.
+  - **Gate Físico (8J-B)**: Validação em hardware real com Tailscale ativo e dispositivo móvel (iPad).
+[Relatório da Etapa 8J-1](PHASE_08J_STAGE1_REMOTE_SESSION_2026-10-25.md) e [Relatório de Hardening da Etapa 0](PHASE_08J_STAGE1_HARDENING_2026-10-25.md).
+
+## Gate da Etapa 1 remota — revisão do coordenador (2026-10-25)
+
+Gate técnico aprovado para servir de base à Etapa 2, limitado à evidência sintética. A Etapa 0 foi o complemento corretivo da Etapa 1. O worker registrou 194 testes focados e 384 na suíte completa aprovados; o coordenador conferiu as correções no código e nos testes, sem reexecutar a suíte. Homologação física Tailscale/iPad permanece pendente. Recuperação de journal incompleto pode exigir reconciliação manual e não há CAS contra alterações externas no Serve. A Etapa 2 não foi iniciada e exige nova autorização explícita.

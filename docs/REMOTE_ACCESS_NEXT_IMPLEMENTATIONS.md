@@ -2,7 +2,7 @@
 
 **Data:** 2026-10-25  
 **Baseline:** `0.7.1` (Commit `21fa5621d2bb2c49665b6d1fc4f7907ac0539d6a` + alterações locais da Etapa 1)  
-**Status:** Planejamento arquitetural e técnico — **Sem autorização para execução antecipada**  
+**Status:** Etapa 0 Concluída e Aprovada Sinteticamente (Fechamento Pré-Gate 1); Etapa 2 pendente de autorização formal
 **Documento versionado de referência:** [AGENTS.md](../AGENTS.md).
 **Referências locais ainda não publicadas:** `docs/REMOTE_ACCESS_INTEGRATION_PLAN.md` e `docs/PHASE_08J_STAGE1_REMOTE_SESSION_2026-10-25.md`.
 
@@ -23,42 +23,34 @@ A integração de acesso remoto constitui um **objetivo proposto** para estender
 
 ---
 
-## 2. Estado Factual Atual e Ressalvas da Etapa 1
+## 2. Estado factual atual e gate da Etapa 1
 
-A verificação factual do repositório confirma a seguinte fotografia:
+A revisão posterior do hardening exigiu complemento: erros de rede apagavam recuperação,
+a ativação precedia a persistência e a extração do primeiro Proxy não provava posse da porta.
+O [relatório posterior](PHASE_08J_STAGE1_RECOVERY_COMPLEMENT_2026-10-25.md) registra a correção
+local, sem reescrever os relatórios históricos nem tomar sua declaração de sucesso por aprovação.
 
-- **Código e Baseline Git:** O Remote Gateway inicial está versionado no commit `21fa5621d2bb2c49665b6d1fc4f7907ac0539d6a`. Os módulos da Etapa 1 (`src/local_transcriber/remote_session.py`, launcher `scripts/start-remote-session.ps1`, testes e relatórios de fase) existem apenas como modificações locais não commitadas no workspace.
-- **Validação de Testes Sintéticos:** 26 testes automatizados com mocks (19 em `tests/test_remote_session.py` e 7 em `tests/test_cli.py`) foram aprovados pelo coordenador em ambiente isolado. Nenhuma validação foi executada em hardware físico com Tailscale real ou dispositivo móvel.
-- **Ressalvas da Revisão Técnica do Gate 1:** Embora o despacho anterior tenha emitido status de conclusão, a revisão de código identificou vulnerabilidades de confiabilidade e cenários de borda não cobertos.
-- **Necessidade de Complemento Obrigatório:** O Gate da Etapa 1 demanda complementação técnica antes de qualquer aprovação final. Este planejamento registra as ressalvas da revisão sem reescrever relatórios históricos de fases concluídas.
+- Journal antes de spawn e ativação, rollback seletivo e retenção em falhas de rede/disco.
+- Inspeção de TCP HTTPS, host, única rota raiz e Proxy exato; estruturas desconhecidas,
+  estáticas, TCP forwarding, serviços ou múltiplos handlers/hosts bloqueiam mutações.
+- `stop` confirma o resultado do off; limpeza stale usa o mesmo protocolo sem ignorar erros.
+- 101 testes de sessão, 8 CLI e 85 gateway (194 focados); suíte completa: 384 aprovados.
+  Concorrência usa trava real do SO; HANDLE 64-bit usa callbacks ctypes sintéticos.
+- Nenhuma ativação real de Tailscale, rede móvel ou iPad. Gate pendente de revisão independente.
 
----
+## 3. Complemento da Etapa 1 (Etapa 0) entregue para revisão
 
-## 3. Pendências Técnicas da Etapa 1 (Etapa 0 - Complemento Pré-Gate)
+Os quatro achados de recuperação/posse e a ausência de testes específicos foram tratados
+no código e nos testes. A conferência de aceite pertence ao coordenador; esta entrega
+não aprova a si própria nem autoriza Etapa 2.
 
-A revisão técnica identificou itens críticos a serem corrigidos em etapa preliminar de complementação (Etapa 0):
+Limites restantes: journal `prepared` sem PID comprovado, estado corrompido e temporário
+sem journal exigem reconciliação manual; configurações desconhecidas de Serve são recusadas.
+A trava serializa esta aplicação, sem CAS contra outros clientes Tailscale; não alterar
+Serve por outro cliente durante a sessão. Queda de energia não foi homologada.
 
-1. **Hardening de Posse em `ProcessVerifier.verify_ownership`:**
-   - O validador atual aceita metadados ausentes (`None`) de forma permissiva (*fail-open*). Em caso de ausência de dados de criação ou argumentos de processo, a validação deve obrigatoriamente falhar (*fail-closed*).
-   - No Windows, chamadas a `OpenProcess`, `GetProcessTimes` e `CloseHandle` via `ctypes` sem especificação formal de `argtypes` e `restype` arriscam truncar ponteiros de `HANDLE` de 64 bits em inteiros de 32 bits.
-   - A rotina deve declarar os tipos Win32 rigorosamente (`wintypes.HANDLE`, `wintypes.BOOL`, `wintypes.DWORD`, `wintypes.LPFILETIME`) e exigir comparação positiva de linha de comando (`--session-id`) e timestamp de criação exato antes de autorizar o término do PID.
-   - A inspeção de processo no Windows via WMI/CIM (`Win32_Process`) deve garantir que a linha de comando contenha exatamente o identificador da sessão ativa.
-2. **Inspeção Prévia de Mapeamento com `serve_status`:**
-   - O comando `start` não executa `tailscale serve status` previamente, arriscando sobrescrever rotas prévias da tailnet ou configurações de terceiros (inclusive Funnel ativo).
-   - O método `serve_status` retorna `{}` silenciosamente em caso de erro de execução ou parsing JSON, mascarando conflitos. Deve operar com leitura estrita e falha fechada, abortando se houver proxy ativo conflitante ou falha de comunicação com o daemon `tailscaled`.
-   - O encerramento em `stop` deve desligar unicamente o mapping comprovadamente pertencente à sessão local (`http://127.0.0.1:8766`).
-   - O método `status` atual executa ações mutativas de rede ao detectar processos ausentes; ele deve ser refatorado para operar como consulta estritamente observacional (somente leitura).
-3. **Confiabilidade e Transacionalidade no Encerramento (`stop`):**
-   - O método `RemoteSessionManager.stop` ignora falhas ao executar `tailscale serve --https=443 off` e não verifica retornos falsos na terminação do processo, apagando o arquivo de sessão prematuramente.
-   - O encerramento deve registrar falhas, preservar o estado de recuperação caso o desligamento não ocorra, executar rollback seguro e implementar serialização contra execuções concorrentes de `start` e `stop`.
-4. **Supervisão, Parâmetros e Dependência do Core:**
-   - Devem ser validadas portas numéricas (1 a 65535) e URLs permitidas, aplicando timeouts finitos em todas as chamadas ao CLI do Tailscale.
-   - A confirmação de prontidão do gateway deve utilizar endpoint **proposto** de readiness a ser definido (`GET /health` ou equivalente), estritamente sem expor dados internos e sem permitir bypass de autenticação.
-   - O modo em segundo plano (`--bg`) e a supervisão em primeiro plano devem tratar sinais de término de forma limpa, prevenindo processos órfãos em caso de encerramento anômalo do terminal.
-   - É obrigatório validar que o Core API já se encontra operacional antes de inicializar o gateway; em nenhuma hipótese o gateway pode instanciar workers de transcrição adicionais.
-5. **Correção de Entrypoint no Módulo CLI:**
-   - Subprocessos filhos executados via `python -m local_transcriber.cli` terminam silenciosamente sem ação porque `src/local_transcriber/cli.py` não contém a cláusula direta `if __name__ == '__main__': sys.exit(main())`.
-   - Essa correção estrutural é estrita à invocação modular de processos filhos, sem afetar o console script instalado do pacote.
+Próxima ação permitida: revisar o complemento e decidir o gate. Após eventual aprovação,
+solicitar nova autorização explícita antes de qualquer implementação da Etapa 2.
 
 ---
 
@@ -71,7 +63,7 @@ As próximas etapas constituem **propostas técnicas pendentes de revisão e aut
 ```
 
 ### Etapa 0: Complemento e Fechamento do Gate da Etapa 1
-- **Escopo:** Correção dos itens levantados na Seção 3 (`verify_ownership`, `serve_status`, `stop` fail-closed, entrypoint do CLI e probe de readiness HTTP proposto).
+- **Escopo:** Complemento de recuperação da Etapa 1, com journal anterior aos efeitos, posse integral de Serve, rollback seletivo e regressões determinísticas; entrega atual aguardando revisão independente.
 - **Cobertura Exigida:** Testes automatizados cobrindo explicitamente as lacunas apontadas (recusa de metadados nulos em posse, tipagem Win32 de 64 bits, aborto em conflito de proxy prévio, preservação de estado em falha de desligamento e execução correta do CLI via subprocesso).
 - **Critério de Aceite:** O gate será considerado atendido somente quando todas as lacunas específicas forem cobertas por testes automatizados com comportamento estritamente *fail-closed*, sem impacto no Core API ou em jobs locais.
 
@@ -155,3 +147,7 @@ Em caso de falha durante a execução de qualquer das etapas planejadas, as segu
 5. **Conformidade com AGENTS.md:** O versionamento de dados, áudios, bancos SQLite ou arquivos temporários permanece estritamente proibido.
 6. **Autorização para Fases Futuras:** Qualquer alteração de código relativa à Etapa 0 ou às Etapas 2, 3, 4 e 5 requer novo despacho formal emitido pelo coordenador após validação deste documento pelo usuário.
 7. **Rastreabilidade de Decisões:** Todas as alterações estruturais futuras deverão ser catalogadas em `docs/DECISIONS.md` antes de sua incorporação ao baseline da aplicação.
+
+## Gate da Etapa 1 remota — revisão do coordenador (2026-10-25)
+
+Gate técnico aprovado para servir de base à Etapa 2, limitado à evidência sintética. A Etapa 0 foi o complemento corretivo da Etapa 1. O worker registrou 194 testes focados e 384 na suíte completa aprovados; o coordenador conferiu as correções no código e nos testes, sem reexecutar a suíte. Homologação física Tailscale/iPad permanece pendente. Recuperação de journal incompleto pode exigir reconciliação manual e não há CAS contra alterações externas no Serve. A Etapa 2 não foi iniciada e exige nova autorização explícita.
