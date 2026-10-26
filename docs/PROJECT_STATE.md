@@ -173,4 +173,16 @@ O gateway possui banco de estado SQLite dedicado (`%LOCALAPPDATA%\LocalTranscrib
 
 ## Gate da Etapa 1 remota — revisão do coordenador (2026-10-25)
 
-Gate técnico aprovado para servir de base à Etapa 2, limitado à evidência sintética. A Etapa 0 foi o complemento corretivo da Etapa 1. O worker registrou 194 testes focados e 384 na suíte completa aprovados; o coordenador conferiu as correções no código e nos testes, sem reexecutar a suíte. Homologação física Tailscale/iPad permanece pendente. Recuperação de journal incompleto pode exigir reconciliação manual e não há CAS contra alterações externas no Serve. A Etapa 2 não foi iniciada e exige nova autorização explícita.
+Gate técnico aprovado para servir de base à Etapa 2, limitado à evidência sintética. A Etapa 0 foi o complemento corretivo da Etapa 1. O worker registrou 194 testes focados e 384 na suíte completa aprovados; o coordenador conferiu as correções no código e nos testes, sem reexecutar a suíte. Homologação física Tailscale/iPad permanece pendente. Recuperação de journal incompleto pode exigir reconciliação manual e não há CAS contra alterações externas no Serve. A Etapa 2 foi posteriormente autorizada e entregue; veja o registro abaixo.
+
+## Etapa 8J — Etapa 2: Matérias autorizadas e rate limiting (2026-10-25)
+
+- **Status**: Implementada e validada sinteticamente, incluindo complemento de revisão.
+- `GET /remote/v1/subjects` retorna apenas `id` e `name` das matérias autorizadas, diretamente do Repository.
+- `allowed_subjects` exige allowlist; fallback para `subject_id` legado somente com chave ausente. Nulo explícito e lista vazia são rejeitados, inclusive com legado.
+- `X-Subject-Id` seleciona a matéria antes de claims e bytes, vinculando-a ao fingerprint de idempotência. Replays legados retornam 409, sem apagar claims.
+- Rate limiting por HMAC da identidade: burst de 30 tokens para leitura e 5 para mutações; reposição de 0.5/s e 1/12s; máximo de 100 identidades e TTL de 300s. Excesso retorna 429 com Retry-After antes de consumir chaves de idempotência.
+- Worker registrou 420 testes aprovados, incluindo 120 de gateway, Ruff, formatação e pip check. Coordenador confirmou a correção, 11 testes de configuração, Ruff, formatação, pip check e git diff --check.
+- Schema core v4, worker único e barreiras de segurança preservados. Homologação física Tailscale/iPad permanece pendente.
+- **Próximo passo**: Etapa 3 (upload particionado/resumable), não iniciada e dependente de autorização explícita.
+- [Plano](REMOTE_ACCESS_STAGE2_INTEGRATION_PLAN.md) e [evidências](PHASE_08J_STAGE2_REMOTE_SUBJECTS_AND_RATE_LIMIT_2026-10-25.md).

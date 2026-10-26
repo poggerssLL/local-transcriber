@@ -817,7 +817,7 @@ def test_stale_importing_claim_fails_closed_when_sha_found_in_core_preventing_id
     ).hexdigest()
     fingerprint_b = hashlib.sha256(
         json.dumps(
-            [FILENAME, TITLE, "2026-10-20", len(audio), "audio/wav"],
+            [FILENAME, TITLE, "2026-10-20", len(audio), "audio/wav", runtime.subject_id],
             ensure_ascii=False,
         ).encode("utf-8")
     ).hexdigest()
@@ -859,7 +859,7 @@ def test_crash_before_core_import_reclaims_stale_claim_and_succeeds(
     ).hexdigest()
     fingerprint = hashlib.sha256(
         json.dumps(
-            [FILENAME, TITLE, "2026-10-20", len(media), "audio/wav"],
+            [FILENAME, TITLE, "2026-10-20", len(media), "audio/wav", runtime.subject_id],
             ensure_ascii=False,
         ).encode("utf-8")
     ).hexdigest()
@@ -981,7 +981,7 @@ def test_job_creation_is_idempotent_single_and_does_not_consume_queue(
 
 
 def test_job_creation_validates_ownership_and_model(
-    gateway: TestClient, runtime: SimpleNamespace
+    gateway: TestClient, runtime: SimpleNamespace, clock: Clock
 ) -> None:
     headers = _session(gateway)
     recording_id = _upload(gateway, headers).json()["id"]
@@ -1003,6 +1003,7 @@ def test_job_creation_validates_ownership_and_model(
     assert _create_job(gateway, other, recording_id, "job-key-000000000004").status_code == 404
     mismatch = _create_job(gateway, headers, local.id, "job-key-000000000001")
     assert mismatch.status_code == 404
+    clock.value += 15.0
     bad = gateway.post(
         f"{REMOTE_PREFIX}/jobs",
         json={"recording_id": recording_id, "model_name": "large"},

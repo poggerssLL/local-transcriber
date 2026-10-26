@@ -21,6 +21,7 @@ import hashlib
 import hmac
 import json
 import logging
+import math
 import os
 import re
 import secrets
@@ -28,7 +29,7 @@ import shutil
 import sqlite3
 import stat
 import time
-from collections.abc import AsyncIterator, Callable, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator, Mapping
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -93,6 +94,7 @@ _CONFIG_KEYS = frozenset(
         "allowed_identities",
         "allowed_hosts",
         "allowed_origins",
+        "allowed_subjects",
         "subject_id",
         "model_name",
         "profile",
@@ -127,7 +129,8 @@ class RemoteGatewayConfig:
     allowed_identities: frozenset[str]
     allowed_hosts: frozenset[str]
     allowed_origins: frozenset[str]
-    subject_id: str
+    allowed_subjects: frozenset[str] = frozenset()
+    subject_id: str | None = None
     model_name: str = "small"
     profile: str = "auto"
     language: str | None = None
@@ -135,6 +138,20 @@ class RemoteGatewayConfig:
     min_free_disk_bytes: int = DEFAULT_MIN_FREE_DISK_BYTES
     csrf_ttl_seconds: int = DEFAULT_CSRF_TTL_SECONDS
     request_timeout_seconds: float = DEFAULT_REQUEST_TIMEOUT_SECONDS
+
+    def __post_init__(self) -> None:
+        if not self.allowed_subjects and not self.subject_id:
+            raise RemoteGatewayConfigError(
+                "either allowed_subjects or subject_id must be configured"
+            )
+        if not self.allowed_subjects and self.subject_id:
+            object.__setattr__(self, "allowed_subjects", frozenset({self.subject_id}))
+        elif (
+            self.allowed_subjects
+            and self.subject_id
+            and self.subject_id not in self.allowed_subjects
+        ):
+            raise RemoteGatewayConfigError("legacy subject_id must be included in allowed_subjects")
 
     @classmethod
     def from_mapping(cls, raw: object) -> RemoteGatewayConfig:
@@ -159,9 +176,34 @@ class RemoteGatewayConfig:
                 raise RemoteGatewayConfigError(
                     "allowed_origins must be https origins of allowed hosts"
                 )
-        subject_id = raw.get("subject_id")
-        if not isinstance(subject_id, str) or _UUID.fullmatch(subject_id) is None:
-            raise RemoteGatewayConfigError("subject_id must be an existing subject UUID")
+        has_allowed_subjects = "allowed_subjects" in raw
+        allowed_subjects: frozenset[str] = frozenset()
+        if has_allowed_subjects:
+            allowed_subjects = _string_set(raw["allowed_subjects"], "allowed_subjects")
+            for item in allowed_subjects:
+                if _UUID.fullmatch(item) is None:
+                    raise RemoteGatewayConfigError("allowed_subjects contains invalid UUID")
+
+        raw_subject = raw.get("subject_id")
+        subject_id: str | None = None
+        if raw_subject is not None:
+            if not isinstance(raw_subject, str) or _UUID.fullmatch(raw_subject) is None:
+                raise RemoteGatewayConfigError("subject_id must be an existing subject UUID")
+            subject_id = raw_subject
+
+        if not has_allowed_subjects and subject_id is None:
+            raise RemoteGatewayConfigError(
+                "either allowed_subjects or subject_id must be configured"
+            )
+
+        if not has_allowed_subjects and subject_id is not None:
+            allowed_subjects = frozenset({subject_id})
+        elif has_allowed_subjects and subject_id is not None:
+            if subject_id not in allowed_subjects:
+                raise RemoteGatewayConfigError(
+                    "legacy subject_id must be included in allowed_subjects"
+                )
+
         model_name = raw.get("model_name", "small")
         if not isinstance(model_name, str) or _MODEL_NAME.fullmatch(model_name) is None:
             raise RemoteGatewayConfigError("model_name is malformed")
@@ -200,6 +242,7 @@ class RemoteGatewayConfig:
             allowed_identities=identities,
             allowed_hosts=hosts,
             allowed_origins=origins,
+            allowed_subjects=allowed_subjects,
             subject_id=subject_id,
             model_name=model_name,
             profile=profile,
@@ -326,6 +369,11 @@ class RemoteSessionResponse(ApiModel):
     max_upload_bytes: int
 
 
+class RemoteSubjectResponse(ApiModel):
+    id: str
+    name: str
+
+
 class RemoteRecordingResponse(ApiModel):
     id: str
     title: str
@@ -440,7 +488,14 @@ class GatewayStateStore:
             connection.executescript(f"BEGIN IMMEDIATE;\n{_STATE_SCHEMA}\nCOMMIT;")
             connection.execute("PRAGMA user_version = 1")
 
-    def claim_upload(self, key_hash: str, identity_hash: str, fingerprint: str) -> _Claim:
+    def claim_upload(
+        self,
+        key_hash: str,
+        identity_hash: str,
+        fingerprint: str,
+        *,
+        legacy_fingerprint: str | None = None,
+    ) -> _Claim:
         now = self.clock()
         with self._immediate() as connection:
             row = connection.execute(
@@ -454,7 +509,11 @@ class GatewayStateStore:
                     (key_hash, identity_hash, fingerprint, now, now),
                 )
                 return _Claim("claimed")
-            if row["identity_hash"] != identity_hash or row["fingerprint"] != fingerprint:
+            if row["identity_hash"] != identity_hash:
+                return _Claim("mismatch")
+            if legacy_fingerprint is not None and row["fingerprint"] == legacy_fingerprint:
+                return _Claim("legacy", row)
+            if row["fingerprint"] != fingerprint:
                 return _Claim("mismatch")
             if row["state"] == "completed":
                 return _Claim("completed", row)
@@ -624,6 +683,100 @@ class CsrfSigner:
         return hmac.compare_digest(expected.encode("ascii"), mac.encode("ascii", "replace"))
 
 
+@dataclass
+class _IdentityBucket:
+    read_tokens: float
+    read_updated: float
+    mutation_tokens: float
+    mutation_updated: float
+    last_seen: float
+
+
+class InMemoryRateLimiter:
+    """Bounded in-memory rate limiter using token buckets indexed by identity_hash.
+
+    Groups:
+    - 'read': burst 30 tokens, refills at 0.5 tokens/sec (30 tokens per 60s).
+    - 'mutation': burst 5 tokens, refills at 1/12 tokens/sec (5 tokens per 60s).
+    Capacity: bounded to 100 identities, TTL of 300s.
+    """
+
+    MAX_IDENTITIES = 100
+    TTL_SECONDS = 300.0
+
+    READ_BURST = 30.0
+    READ_REFILL_RATE = 0.5  # 30 tokens per 60 seconds
+
+    MUTATION_BURST = 5.0
+    MUTATION_REFILL_RATE = 1.0 / 12.0  # 5 tokens per 60 seconds (1 token / 12s)
+
+    def __init__(self, *, clock: Callable[[], float] = time.monotonic) -> None:
+        self._clock = clock
+        self._lock = Lock()
+        self._identities: dict[str, _IdentityBucket] = {}
+
+    def acquire(self, identity_hash: str, group: str) -> tuple[bool, int]:
+        """Attempt to acquire a token for group ('read' or 'mutation').
+
+        Returns (allowed, retry_after_seconds). If allowed is True, retry_after is 0.
+        If allowed is False, retry_after is a positive integer.
+        """
+        now = self._clock()
+        with self._lock:
+            cutoff = now - self.TTL_SECONDS
+            expired = [k for k, v in self._identities.items() if v.last_seen < cutoff]
+            for k in expired:
+                del self._identities[k]
+
+            bucket = self._identities.get(identity_hash)
+            if bucket is None:
+                if len(self._identities) >= self.MAX_IDENTITIES:
+                    oldest_expiry = min(
+                        v.last_seen + self.TTL_SECONDS for v in self._identities.values()
+                    )
+                    retry_after = max(1, math.ceil(oldest_expiry - now))
+                    return False, retry_after
+                bucket = _IdentityBucket(
+                    read_tokens=self.READ_BURST,
+                    read_updated=now,
+                    mutation_tokens=self.MUTATION_BURST,
+                    mutation_updated=now,
+                    last_seen=now,
+                )
+                self._identities[identity_hash] = bucket
+
+            bucket.last_seen = now
+
+            if group == "mutation":
+                elapsed = max(0.0, now - bucket.mutation_updated)
+                tokens = min(
+                    self.MUTATION_BURST,
+                    bucket.mutation_tokens + elapsed * self.MUTATION_REFILL_RATE,
+                )
+                bucket.mutation_updated = now
+                if tokens >= 1.0:
+                    bucket.mutation_tokens = tokens - 1.0
+                    return True, 0
+                bucket.mutation_tokens = tokens
+                needed = 1.0 - tokens
+                retry_after = max(1, math.ceil(needed / self.MUTATION_REFILL_RATE))
+                return False, retry_after
+            else:
+                elapsed = max(0.0, now - bucket.read_updated)
+                tokens = min(
+                    self.READ_BURST,
+                    bucket.read_tokens + elapsed * self.READ_REFILL_RATE,
+                )
+                bucket.read_updated = now
+                if tokens >= 1.0:
+                    bucket.read_tokens = tokens - 1.0
+                    return True, 0
+                bucket.read_tokens = tokens
+                needed = 1.0 - tokens
+                retry_after = max(1, math.ceil(needed / self.READ_REFILL_RATE))
+                return False, retry_after
+
+
 def _decode_header_text(value: str | None, name: str, *, maximum: int) -> str:
     if value is None:
         raise HTTPException(400, f"missing {name} header")
@@ -654,8 +807,8 @@ def _recording_payload(recording: Recording) -> RemoteRecordingResponse:
     )
 
 
-def _error(status: int, detail: str) -> JSONResponse:
-    response = JSONResponse({"detail": detail}, status_code=status)
+def _error(status: int, detail: str, headers: Mapping[str, str] | None = None) -> JSONResponse:
+    response = JSONResponse({"detail": detail}, status_code=status, headers=headers)
     _security_headers(response)
     return response
 
@@ -666,6 +819,7 @@ def create_remote_gateway_app(
     gateway_config: RemoteGatewayConfig | None = None,
     model_manager: ModelManager | None = None,
     clock: Callable[[], float] = time.time,
+    rate_limit_clock: Callable[[], float] | None = None,
     disk_usage: Callable[[Path], Any] = shutil.disk_usage,
 ) -> FastAPI:
     """Build the loopback-only gateway. Raises when disabled or misconfigured."""
@@ -688,6 +842,12 @@ def create_remote_gateway_app(
     queue = TranscriptionQueue(repository, paths, models=models)
     store = GatewayStateStore(base / STATE_FILENAME, clock=clock)
     signer = CsrfSigner(secret, settings.csrf_ttl_seconds, clock)
+    limiter_clock = (
+        rate_limit_clock
+        if rate_limit_clock is not None
+        else (clock if clock is not time.time else time.monotonic)
+    )
+    rate_limiter = InMemoryRateLimiter(clock=limiter_clock)
     gateway_lock = _SingleWorkerLock(base / LOCK_FILENAME)
     job_lock = Lock()
     upload_lock = asyncio.Lock()
@@ -704,8 +864,11 @@ def create_remote_gateway_app(
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         paths.ensure_directories()
         database.initialize()
-        if repository.get_subject(settings.subject_id) is None:
-            raise RemoteGatewayConfigError("configured subject_id does not exist")
+        for sub_id in sorted(settings.allowed_subjects):
+            if repository.get_subject(sub_id) is None:
+                raise RemoteGatewayConfigError(
+                    f"configured subject '{sub_id}' does not exist on notebook"
+                )
         gateway_lock.acquire()
         try:
             store.initialize()
@@ -729,6 +892,7 @@ def create_remote_gateway_app(
     app.state.repository = repository
     app.state.store = store
     app.state.signer = signer
+    app.state.rate_limiter = rate_limiter
 
     @app.middleware("http")
     async def enforce_gateway_boundary(request: Request, call_next: Callable):  # type: ignore[type-arg]
@@ -786,6 +950,16 @@ def create_remote_gateway_app(
             token = tokens[0] if len(tokens) == 1 else None
             if not signer.verify(identity_hash, request.cookies.get(SESSION_COOKIE), token):
                 return _error(403, "invalid or expired CSRF token")
+        group = "mutation" if request.method in MUTATING_METHODS else "read"
+        allowed, retry_after = rate_limiter.acquire(identity_hash, group)
+        if not allowed:
+            LOGGER.warning(
+                "remote rate limit exceeded: group=%s identity_hash=%s retry_after=%d",
+                group,
+                identity_hash[:8],
+                retry_after,
+            )
+            return _error(429, "rate limit exceeded", headers={"Retry-After": str(retry_after)})
         try:
             response = await call_next(request)
         except Exception as error:
@@ -823,6 +997,21 @@ def create_remote_gateway_app(
     def health_check() -> dict[str, str]:
         """Minimal authenticated loopback readiness probe; exposes zero internal state."""
         return {"status": "ok"}
+
+    @app.get(f"{REMOTE_PREFIX}/subjects", response_model=list[RemoteSubjectResponse])
+    async def list_remote_subjects(request: Request) -> list[RemoteSubjectResponse]:
+        identity_hash: str = request.state.identity_hash
+        subjects = await asyncio.to_thread(repository.list_subjects)
+        allowed = settings.allowed_subjects
+        filtered = [
+            RemoteSubjectResponse(id=s.id, name=s.name) for s in subjects if s.id in allowed
+        ]
+        LOGGER.info(
+            "remote subjects listed: count=%d identity_hash=%s",
+            len(filtered),
+            identity_hash[:8],
+        )
+        return filtered
 
     def _existing_recording(row: sqlite3.Row) -> Recording:
         recording = repository.get_recording(row["recording_id"])
@@ -866,7 +1055,46 @@ def create_remote_gateway_app(
             lesson_date = date.today() if raw_date is None else date.fromisoformat(raw_date)
         except ValueError as error:
             raise HTTPException(400, "malformed X-Lesson-Date header") from error
+
+        raw_subject_id = _single_header(request, "x-subject-id")
+        if raw_subject_id is not None:
+            if _UUID.fullmatch(raw_subject_id) is None:
+                raise HTTPException(400, "malformed X-Subject-Id header")
+            if raw_subject_id not in settings.allowed_subjects:
+                raise HTTPException(403, "subject is not authorized for remote upload")
+            resolved_subject_id = raw_subject_id
+        else:
+            if (
+                settings.subject_id is not None
+                and len(settings.allowed_subjects) == 1
+                and settings.subject_id in settings.allowed_subjects
+            ):
+                resolved_subject_id = settings.subject_id
+            elif len(settings.allowed_subjects) > 1:
+                raise HTTPException(
+                    400, "X-Subject-Id header is required when multiple subjects are authorized"
+                )
+            else:
+                raise HTTPException(400, "X-Subject-Id header is required")
+
+        subject_record = await asyncio.to_thread(repository.get_subject, resolved_subject_id)
+        if subject_record is None:
+            raise HTTPException(422, "subject does not exist on the notebook")
+
         fingerprint = hashlib.sha256(
+            json.dumps(
+                [
+                    filename,
+                    title,
+                    lesson_date.isoformat(),
+                    expected_bytes,
+                    content_type.lower(),
+                    resolved_subject_id,
+                ],
+                ensure_ascii=False,
+            ).encode("utf-8")
+        ).hexdigest()
+        legacy_fingerprint = hashlib.sha256(
             json.dumps(
                 [filename, title, lesson_date.isoformat(), expected_bytes, content_type.lower()],
                 ensure_ascii=False,
@@ -874,7 +1102,15 @@ def create_remote_gateway_app(
         ).hexdigest()
         key_hash = key_digest(identity_hash, key)
 
-        claim = await asyncio.to_thread(store.claim_upload, key_hash, identity_hash, fingerprint)
+        claim = await asyncio.to_thread(
+            store.claim_upload,
+            key_hash,
+            identity_hash,
+            fingerprint,
+            legacy_fingerprint=legacy_fingerprint,
+        )
+        if claim.outcome == "legacy":
+            raise HTTPException(409, "legacy upload fingerprint requires a new Idempotency-Key")
         if claim.outcome == "mismatch":
             raise HTTPException(422, "Idempotency-Key was already used for another request")
         if claim.outcome == "busy":
@@ -919,13 +1155,18 @@ def create_remote_gateway_app(
                             stream,
                             original_name=filename,
                             title=title,
-                            subject_id=settings.subject_id,
+                            subject_id=resolved_subject_id,
                             lesson_date=lesson_date,
                         )
 
                 try:
                     recording = await asyncio.to_thread(import_media)
                 except (DuplicateMediaError, sqlite3.IntegrityError) as error:
+                    if (
+                        isinstance(error, sqlite3.IntegrityError)
+                        and "FOREIGN KEY" in str(error).upper()
+                    ):
+                        raise HTTPException(422, "media could not be imported") from error
                     raise HTTPException(
                         409, "this media already exists in the notebook library"
                     ) from error
@@ -933,7 +1174,7 @@ def create_remote_gateway_app(
                     raise HTTPException(413, "upload is too large") from error
                 except (UnsupportedMediaError, InvalidMediaError) as error:
                     raise HTTPException(415, "file is not supported decodable media") from error
-                except MediaImportError as error:
+                except (MediaImportError, KeyError) as error:
                     raise HTTPException(422, "media could not be imported") from error
                 try:
                     await asyncio.to_thread(store.complete_upload, key_hash, recording.id)
