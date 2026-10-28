@@ -101,6 +101,17 @@ def build_parser() -> argparse.ArgumentParser:
     export.add_argument("transcript_id")
     export.add_argument("--format", choices=[item.value for item in ExportFormat], required=True)
 
+    auth = commands.add_parser("auth", help="manage external authorizations")
+    auth_sub = auth.add_subparsers(dest="provider", required=True)
+    chatgpt = auth_sub.add_parser("chatgpt", help="manage Sign in with ChatGPT authorization")
+    chatgpt_actions = chatgpt.add_subparsers(dest="action", required=True)
+    chatgpt_actions.add_parser("status", help="show ChatGPT connection status")
+    chatgpt_actions.add_parser("logout", help="clear ChatGPT tokens")
+
+    antigravity = auth_sub.add_parser("antigravity", help="manage Antigravity integration")
+    antigravity_actions = antigravity.add_subparsers(dest="action", required=True)
+    antigravity_actions.add_parser("status", help="show Antigravity CLI status")
+
     serve = commands.add_parser("serve", help="run the localhost HTTP API and queue worker")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8765)
@@ -421,6 +432,32 @@ def run(args: argparse.Namespace, *, out: TextIO, err: TextIO) -> int:
                 "metrics": None if transcript.metrics is None else asdict(transcript.metrics),
             }
             print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True), file=out)
+        return 0
+    if args.command == "auth":
+        if args.provider == "chatgpt":
+            from .chatgpt_auth import ChatGPTAuthManager
+
+            auth_mgr = ChatGPTAuthManager(config.paths.auth)
+            if args.action == "status":
+                status = auth_mgr.get_status()
+                print(json.dumps(status, ensure_ascii=False, indent=2, sort_keys=True), file=out)
+                return 0
+            if args.action == "logout":
+                auth_mgr.logout()
+                print("ChatGPT tokens erased successfully.", file=out)
+                return 0
+        if args.provider == "antigravity":
+            from .antigravity_client import find_antigravity_cli
+
+            if args.action == "status":
+                path = find_antigravity_cli()
+                payload = {
+                    "available": bool(path),
+                    "cli_path": path,
+                    "default_model": "gemini-3.8-flash-low",
+                }
+                print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True), file=out)
+                return 0
         return 0
     transcript = repository.get_transcript(args.transcript_id)
     if transcript is None:

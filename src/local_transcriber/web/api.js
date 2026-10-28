@@ -262,6 +262,26 @@ export class LocalApi {
     return `${API_ROOT}/transcripts/${encodeURIComponent(transcriptId)}/summary/download?format=${encodeURIComponent(format)}`;
   }
 
+  antigravityStatus(options = {}) {
+    return this.request("/auth/antigravity/status", options);
+  }
+
+  chatgptStatus(options = {}) {
+    return this.request("/auth/chatgpt/status", options);
+  }
+
+  chatgptLogin(redirectUri = null, options = {}) {
+    const query = redirectUri ? `?redirect_uri=${encodeURIComponent(redirectUri)}` : "";
+    return this.request(`/auth/chatgpt/login${query}`, options);
+  }
+
+  chatgptLogout(options = {}) {
+    return this.request("/auth/chatgpt/logout", {
+      method: "POST",
+      ...options,
+    });
+  }
+
   eventStream(jobId, handlers, { afterSequence = 0 } = {}) {
     const cursor = Number.isSafeInteger(afterSequence) && afterSequence >= 0 ? afterSequence : 0;
     const source = new EventSource(

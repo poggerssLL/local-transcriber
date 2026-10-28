@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import json
 import logging
 import mimetypes
 import os
 import re
 import sqlite3
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from contextlib import asynccontextmanager
 from dataclasses import asdict
@@ -19,15 +21,30 @@ from threading import Event, Thread
 from typing import Annotated, Any, BinaryIO
 from urllib.parse import urlsplit
 
-from fastapi import FastAPI, File, Form, Header, Query, Request, Response, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, Query, Request, Response, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
+from .antigravity_client import AntigravityTransport, find_antigravity_cli
+from .chatgpt_auth import DEFAULT_CLIENT_ID, ChatGPTAuthManager
+from .chatgpt_client import ChatGPTTransport
 from .config import AppConfig
 from .database import Database
-from .exceptions import RecordingHasActiveJobsError
+from .exceptions import (
+    AntigravityError,
+    AntigravityInferenceError,
+    AntigravityUnavailableError,
+    ChatGPTAuthError,
+    ChatGPTError,
+    ChatGPTInferenceError,
+    ChatGPTLimitError,
+    ChatGPTModelUnavailableError,
+    ChatGPTServiceUnavailableError,
+    ChatGPTTokenRevokedError,
+    RecordingHasActiveJobsError,
+)
 from .exporters import ExportFormat, TranscriptExporter, render_transcript
 from .media import (
     DuplicateMediaError,
@@ -241,6 +258,15 @@ class GlossaryEntryResponse(ApiModel):
     first_timestamp: str
 
 
+class ChartVisualizationResponse(ApiModel):
+    id: str
+    title: str
+    chart_type: str
+    description: str
+    data: list[dict[str, Any]] = Field(default_factory=list)
+    timestamp: str = "00:00:00"
+
+
 class FlashcardEntryResponse(ApiModel):
     id: str
     question: str
@@ -259,6 +285,7 @@ class TranscriptSummaryResponse(ApiModel):
     executive: ExecutiveSummaryResponse
     timeline: list[TimelineEntryResponse] = Field(default_factory=list)
     glossary: list[GlossaryEntryResponse] = Field(default_factory=list)
+    charts: list[ChartVisualizationResponse] = Field(default_factory=list)
     flashcards: list[FlashcardEntryResponse] = Field(default_factory=list)
     spoken_summary: str = ""
 
@@ -271,6 +298,26 @@ class SummaryProgressResponse(ApiModel):
     chunk_total: int | None = None
     start_time: str | None = None
     end_time: str | None = None
+
+
+class ChatGPTStatusResponse(ApiModel):
+    connected: bool
+    email: str | None = None
+    account_id: str | None = None
+    client_id: str | None = None
+    expires_at: float | None = None
+    expired: bool = True
+    has_luna: bool = False
+    model: str | None = None
+
+
+class ChatGPTLoginResponse(ApiModel):
+    auth_url: str
+    state: str
+
+
+class ChatGPTLogoutResponse(ApiModel):
+    status: str
 
 
 class _WorkerController:
@@ -734,6 +781,8 @@ def create_app(
     app.state.worker_controller = controller
     app.state.worker_lock = worker_lock
     app.state.summary_progress = {}
+    app.state.chatgpt_pending_auth = {}
+    app.state.chatgpt_auth_manager = ChatGPTAuthManager(app_config.paths.auth)
 
     def job_payload(job: TranscriptionJob) -> JobResponse:
         # Read the cursor before refreshing the job. A concurrent event can then be
@@ -801,7 +850,13 @@ def create_app(
     async def domain_error(_request: Request, error: Exception) -> JSONResponse:
         if isinstance(error, KeyError):
             status = 404
-        elif isinstance(error, OllamaUnavailableError):
+        elif isinstance(error, (ChatGPTAuthError, ChatGPTTokenRevokedError)):
+            status = 401
+        elif isinstance(error, ChatGPTLimitError):
+            status = 429
+        elif isinstance(error, ChatGPTInferenceError):
+            status = 502
+        elif isinstance(error, (OllamaUnavailableError, ChatGPTServiceUnavailableError)):
             status = 503
         elif isinstance(error, MediaTooLargeError):
             status = 413
@@ -817,7 +872,7 @@ def create_app(
             ),
         ):
             status = 409
-        elif isinstance(error, (MediaImportError, ValueError)):
+        elif isinstance(error, (ChatGPTModelUnavailableError, MediaImportError, ValueError)):
             status = 422
         elif isinstance(error, FileNotFoundError):
             status = 409
@@ -832,6 +887,16 @@ def create_app(
 
     for handled_error in (
         KeyError,
+        ChatGPTAuthError,
+        ChatGPTTokenRevokedError,
+        ChatGPTLimitError,
+        ChatGPTModelUnavailableError,
+        ChatGPTInferenceError,
+        ChatGPTServiceUnavailableError,
+        ChatGPTError,
+        AntigravityUnavailableError,
+        AntigravityInferenceError,
+        AntigravityError,
         OllamaUnavailableError,
         MediaTooLargeError,
         UnsupportedMediaError,
@@ -1204,6 +1269,7 @@ def create_app(
             accept_header = request.headers.get("accept", "").lower()
             is_stream = stream or ("text/event-stream" in accept_header)
 
+        provider = "ollama"
         payload_kwargs: dict[str, Any] = {}
         content_type = request.headers.get("content-type", "")
         if "application/json" in content_type:
@@ -1212,6 +1278,8 @@ def create_app(
                 if body_bytes:
                     raw = json.loads(body_bytes)
                     if isinstance(raw, dict):
+                        if raw.get("provider"):
+                            provider = str(raw["provider"]).strip().lower()
                         if raw.get("model_name"):
                             payload_kwargs["model_name"] = str(raw["model_name"])
                         if raw.get("ollama_url"):
@@ -1226,8 +1294,36 @@ def create_app(
                 pass
 
         source_path = ensure_transcript_source(transcript)
-        config = SummaryConfig(**payload_kwargs) if payload_kwargs else SummaryConfig()
-        summarizer = TranscriptSummarizer(config=config)
+
+        if provider == "chatgpt":
+            auth_mgr = app.state.chatgpt_auth_manager
+            status = auth_mgr.get_status()
+            if not status.get("connected"):
+                raise ChatGPTAuthError(
+                    "Conta ChatGPT não conectada. Autentique-se via Sign in with ChatGPT."
+                )
+            timeout = float(payload_kwargs.get("timeout") or 600)
+            model = str(payload_kwargs.get("model_name") or "gpt-6-luna")
+            transport = ChatGPTTransport(auth_manager=auth_mgr, model_name=model, timeout=timeout)
+            config = SummaryConfig(
+                model_name=model,
+                chunk_duration_minutes=int(payload_kwargs.get("chunk_duration_minutes") or 20),
+                timeout=int(timeout),
+            )
+            summarizer = TranscriptSummarizer(config=config, transport=transport)
+        elif provider == "antigravity":
+            timeout = float(payload_kwargs.get("timeout") or 600)
+            model = str(payload_kwargs.get("model_name") or "gemini-3.8-flash-low")
+            transport = AntigravityTransport(model_name=model, timeout=timeout)
+            config = SummaryConfig(
+                model_name=model,
+                chunk_duration_minutes=int(payload_kwargs.get("chunk_duration_minutes") or 60),
+                timeout=int(timeout),
+            )
+            summarizer = TranscriptSummarizer(config=config, transport=transport)
+        else:
+            config = SummaryConfig(**payload_kwargs) if payload_kwargs else SummaryConfig()
+            summarizer = TranscriptSummarizer(config=config)
 
         if not is_stream:
 
@@ -1362,5 +1458,416 @@ def create_app(
             filename=filename,
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
+
+    PENDING_AUTH_TTL_SECONDS = 600.0
+
+    def _prune_expired_pending_auth(pending_dict: dict[str, dict[str, Any]]) -> None:
+        now = time.time()
+        expired = [
+            k
+            for k, v in pending_dict.items()
+            if now - float(v.get("created_at") or 0.0) > PENDING_AUTH_TTL_SECONDS
+        ]
+        for k in expired:
+            pending_dict.pop(k, None)
+
+    @app.get(f"{API_PREFIX}/auth/antigravity/status")
+    def antigravity_status() -> dict[str, Any]:
+        cli_path = find_antigravity_cli()
+        available = bool(cli_path)
+        return {
+            "available": available,
+            "cli_path": cli_path,
+            "default_model": "gemini-3.8-flash-low",
+            "models": [
+                "gemini-3.8-flash-low",
+                "gemini-3.8-flash-medium",
+                "gemini-3.8-flash-high",
+            ],
+        }
+
+    @app.get(f"{API_PREFIX}/auth/chatgpt/status", response_model=ChatGPTStatusResponse)
+    def chatgpt_status() -> ChatGPTStatusResponse:
+        auth_mgr: ChatGPTAuthManager = app.state.chatgpt_auth_manager
+        status = auth_mgr.get_status()
+        has_luna = False
+        if status.get("connected"):
+            try:
+                tokens = auth_mgr.store.load()
+                if tokens and not tokens.is_expired():
+                    transport = ChatGPTTransport(auth_manager=auth_mgr, timeout=5.0)
+                    available = transport.fetch_available_models(tokens.access_token)
+                    has_luna = "gpt-6-luna" in available
+                else:
+                    has_luna = False
+            except Exception:
+                has_luna = False
+        return ChatGPTStatusResponse(
+            connected=status.get("connected", False),
+            email=status.get("email"),
+            account_id=status.get("account_id"),
+            client_id=status.get("client_id"),
+            expires_at=status.get("expires_at"),
+            expired=status.get("expired", True),
+            has_luna=has_luna,
+            model="gpt-6-luna" if has_luna else None,
+        )
+
+    @app.get(f"{API_PREFIX}/auth/chatgpt/login", response_model=ChatGPTLoginResponse)
+    def chatgpt_login(request: Request, redirect_uri: str | None = None) -> ChatGPTLoginResponse:
+        auth_mgr: ChatGPTAuthManager = app.state.chatgpt_auth_manager
+        expected_callback_path = f"{API_PREFIX}/auth/chatgpt/callback"
+
+        if redirect_uri:
+            parsed = urlsplit(redirect_uri)
+            if (
+                parsed.scheme != "http"
+                or parsed.hostname != "127.0.0.1"
+                or parsed.path != expected_callback_path
+            ):
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "redirect_uri inválido: deve utilizar estritamente o esquema HTTP "
+                        f"com host '127.0.0.1' e caminho '{expected_callback_path}'."
+                    ),
+                )
+            target_redirect_uri = redirect_uri
+        else:
+            host_header = request.headers.get("host") or "127.0.0.1:8765"
+            port = host_header.split(":")[-1] if ":" in host_header else "8765"
+            target_redirect_uri = f"http://127.0.0.1:{port}{expected_callback_path}"
+
+        _prune_expired_pending_auth(app.state.chatgpt_pending_auth)
+
+        auth_url, verifier, state, nonce = auth_mgr.create_authorization_url(target_redirect_uri)
+        app.state.chatgpt_pending_auth[state] = {
+            "verifier": verifier,
+            "nonce": nonce,
+            "redirect_uri": target_redirect_uri,
+            "created_at": time.time(),
+        }
+        return ChatGPTLoginResponse(auth_url=auth_url, state=state)
+
+    def _build_callback_html(
+        title: str,
+        message: str,
+        badge: str | None = None,
+        detail: str | None = None,
+        is_success: bool = True,
+    ) -> str:
+        esc_title = html.escape(title)
+        esc_message = html.escape(message)
+        badge_html = f'<div class="badge">{html.escape(badge)}</div>' if badge else ""
+        detail_html = f'<div class="detail-box">{html.escape(detail)}</div>' if detail else ""
+
+        if is_success:
+            icon_markup = (
+                '<div class="icon-ring icon-success">'
+                '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" '
+                'stroke-linecap="round" stroke-linejoin="round">'
+                '<polyline points="20 6 9 17 4 12"></polyline>'
+                "</svg></div>"
+            )
+            btn_markup = (
+                '<button id="btn-close" class="btn btn-primary" onclick="window.close()">'
+                "Fechar Agora (3s)</button>"
+            )
+            script_markup = """
+            <script>
+              if (window.opener) {
+                try { window.opener.postMessage('chatgpt-connected', '*'); } catch (e) {}
+              }
+              let count = 3;
+              const btn = document.getElementById('btn-close');
+              const t = setInterval(() => {
+                count -= 1;
+                if (btn) btn.textContent = `Fechar Agora (${count}s)`;
+                if (count <= 0) {
+                  clearInterval(t);
+                  window.close();
+                }
+              }, 1000);
+            </script>
+            """
+        else:
+            icon_markup = (
+                '<div class="icon-ring icon-error">'
+                '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" '
+                'stroke-linecap="round" stroke-linejoin="round">'
+                '<circle cx="12" cy="12" r="10"></circle>'
+                '<line x1="12" y1="8" x2="12" y2="12"></line>'
+                '<line x1="12" y1="16" x2="12.01" y2="16"></line>'
+                "</svg></div>"
+            )
+            btn_markup = (
+                '<button class="btn btn-secondary" onclick="window.close()">Fechar Janela</button>'
+            )
+            script_markup = ""
+
+        font_stack = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif'
+        return f"""<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{esc_title} - Local Transcriber</title>
+  <style>
+    * {{
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }}
+    body {{
+      font-family: {font_stack};
+      background: radial-gradient(circle at 50% 15%, #0f2537 0%, #080d1a 75%);
+      color: #f1f5f9;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      -webkit-font-smoothing: antialiased;
+    }}
+    .auth-card {{
+      width: 100%;
+      max-width: 440px;
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 18px;
+      padding: 36px 30px;
+      text-align: center;
+      box-shadow: 0 20px 45px -10px rgba(0, 0, 0, 0.7);
+    }}
+    .icon-ring {{
+      width: 64px;
+      height: 64px;
+      margin: 0 auto 18px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }}
+    .icon-ring svg {{
+      width: 32px;
+      height: 32px;
+    }}
+    .icon-success {{
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.35);
+      color: #34d399;
+      box-shadow: 0 0 20px rgba(16, 185, 129, 0.25);
+    }}
+    .icon-error {{
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.35);
+      color: #f87171;
+      box-shadow: 0 0 20px rgba(239, 68, 68, 0.25);
+    }}
+    h1 {{
+      font-size: 1.3rem;
+      font-weight: 700;
+      color: #ffffff;
+      margin-bottom: 6px;
+    }}
+    .badge {{
+      display: inline-block;
+      margin: 6px auto 14px;
+      padding: 5px 14px;
+      background: rgba(56, 189, 248, 0.12);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      color: #38bdf8;
+      border-radius: 9999px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      word-break: break-all;
+    }}
+    .message {{
+      color: #94a3b8;
+      font-size: 0.92rem;
+      line-height: 1.55;
+      margin-bottom: 22px;
+    }}
+    .detail-box {{
+      text-align: left;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.78rem;
+      background: rgba(0, 0, 0, 0.45);
+      border: 1px solid rgba(239, 68, 68, 0.25);
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-bottom: 20px;
+      color: #fca5a5;
+      word-break: break-all;
+      max-height: 120px;
+      overflow-y: auto;
+    }}
+    .btn {{
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      min-height: 42px;
+      padding: 10px 20px;
+      border-radius: 10px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s ease;
+      text-decoration: none;
+    }}
+    .btn-primary {{
+      background: #0284c7;
+      color: #ffffff;
+      box-shadow: 0 4px 14px rgba(2, 132, 199, 0.4);
+    }}
+    .btn-primary:hover {{
+      background: #0369a1;
+      transform: translateY(-1px);
+    }}
+    .btn-secondary {{
+      background: rgba(255, 255, 255, 0.08);
+      color: #e2e8f0;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+    }}
+    .btn-secondary:hover {{
+      background: rgba(255, 255, 255, 0.14);
+    }}
+    .footer-note {{
+      margin-top: 18px;
+      font-size: 0.74rem;
+      color: #64748b;
+    }}
+  </style>
+</head>
+<body>
+  <div class="auth-card">
+    {icon_markup}
+    <h1>{esc_title}</h1>
+    {badge_html}
+    <p class="message">{esc_message}</p>
+    {detail_html}
+    {btn_markup}
+    <p class="footer-note">Local Transcriber · Conexão Segura</p>
+  </div>
+  {script_markup}
+</body>
+</html>"""
+
+    @app.get(f"{API_PREFIX}/auth/chatgpt/callback")
+    def chatgpt_callback(
+        code: str | None = None,
+        state: str | None = None,
+        client_id: str | None = None,
+        error: str | None = None,
+        error_description: str | None = None,
+    ) -> Response:
+        _prune_expired_pending_auth(app.state.chatgpt_pending_auth)
+
+        # 1. State parameter is mandatory and must be validated first, including in error callbacks
+        if not state:
+            html_content = _build_callback_html(
+                title="Estado ausente",
+                message="O parâmetro de segurança 'state' não foi fornecido.",
+                is_success=False,
+            )
+            return Response(
+                content=html_content, media_type="text/html; charset=utf-8", status_code=400
+            )
+
+        pending = app.state.chatgpt_pending_auth.pop(state, None)
+        if not pending or (
+            time.time() - float(pending.get("created_at") or 0.0) > PENDING_AUTH_TTL_SECONDS
+        ):
+            html_content = _build_callback_html(
+                title="Estado expirado ou inválido",
+                message=(
+                    "A sessão expirou ou é inválida. Feche esta janela e tente conectar novamente."
+                ),
+                is_success=False,
+            )
+            return Response(
+                content=html_content, media_type="text/html; charset=utf-8", status_code=400
+            )
+
+        # 2. Handle error returned by IdP
+        if error:
+            raw_err = error_description or error
+            safe_err = _safe_message(raw_err, app_config.paths.root)
+            html_content = _build_callback_html(
+                title="Erro de Autenticação",
+                message="O provedor ChatGPT recusou ou cancelou a solicitação de autorização.",
+                detail=safe_err,
+                is_success=False,
+            )
+            return Response(
+                content=html_content, media_type="text/html; charset=utf-8", status_code=400
+            )
+
+        # 3. Code must be present
+        if not code:
+            html_content = _build_callback_html(
+                title="Código Ausente",
+                message="O código de autorização não foi retornado pelo provedor de autenticação.",
+                is_success=False,
+            )
+            return Response(
+                content=html_content, media_type="text/html; charset=utf-8", status_code=400
+            )
+
+        auth_mgr: ChatGPTAuthManager = app.state.chatgpt_auth_manager
+        saved_cid = auth_mgr.store.get_issued_client_id()
+        if saved_cid and saved_cid != DEFAULT_CLIENT_ID:
+            if client_id and client_id.strip() != saved_cid:
+                html_content = _build_callback_html(
+                    title="Troca Inesperada de Cliente",
+                    message="O 'client_id' diverge da credencial registrada.",
+                    is_success=False,
+                )
+                return Response(
+                    content=html_content, media_type="text/html; charset=utf-8", status_code=400
+                )
+            effective_client_id = saved_cid
+        else:
+            effective_client_id = client_id.strip() if client_id else None
+
+        try:
+            tokens = auth_mgr.exchange_code(
+                code=code,
+                code_verifier=pending["verifier"],
+                redirect_uri=pending["redirect_uri"],
+                expected_nonce=pending["nonce"],
+                client_id=effective_client_id,
+            )
+        except Exception as exc:
+            safe_err = _safe_message(exc, app_config.paths.root)
+            html_content = _build_callback_html(
+                title="Falha na Troca de Credenciais",
+                message="Não foi possível concluir a troca de código por tokens.",
+                detail=safe_err,
+                is_success=False,
+            )
+            return Response(
+                content=html_content, media_type="text/html; charset=utf-8", status_code=400
+            )
+
+        user_display = tokens.user_email or "usuário conectado"
+        html_page = _build_callback_html(
+            title="Conectado com Sucesso!",
+            message=(
+                "Sua conta ChatGPT foi autorizada para síntese de resumos. "
+                "Você pode fechar esta janela e retornar à aplicação."
+            ),
+            badge=user_display,
+            is_success=True,
+        )
+        return Response(content=html_page, media_type="text/html; charset=utf-8")
+
+    @app.post(f"{API_PREFIX}/auth/chatgpt/logout", response_model=ChatGPTLogoutResponse)
+    def chatgpt_logout() -> ChatGPTLogoutResponse:
+        auth_mgr: ChatGPTAuthManager = app.state.chatgpt_auth_manager
+        auth_mgr.logout()
+        return ChatGPTLogoutResponse(status="logged_out")
 
     return app

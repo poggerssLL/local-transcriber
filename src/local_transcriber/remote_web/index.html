@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Local Transcriber · Acesso remoto</title>
+  <link rel="stylesheet" href="/remote/assets/styles.css">
+  <script type="module" src="/remote/assets/app.js"></script>
+</head>
+<body>
+  <main>
+    <header><h1>Transcrever aula</h1><p>Envie um áudio pela sua conexão privada e acompanhe a transcrição.</p></header>
+    <p id="status" role="status" aria-live="polite" aria-atomic="true">Conectando ao notebook…</p>
+    <section aria-labelledby="upload-heading">
+      <h2 id="upload-heading">Novo envio</h2>
+      <form id="upload-form">
+        <label for="subject">Matéria</label><select id="subject" name="subject" required disabled></select>
+        <label for="file">Áudio</label><input id="file" name="file" type="file" accept=".m4a,.aac,.mp3,.wav" required disabled>
+        <label for="title">Título (opcional)</label><input id="title" name="title" maxlength="500" disabled>
+        <label for="lesson-date">Data da aula (opcional)</label><input id="lesson-date" name="lesson-date" type="date" disabled>
+        <button id="submit" type="submit" disabled>Verificar e enviar</button>
+      </form>
+    </section>
+    <section id="activity" aria-labelledby="activity-heading" hidden>
+      <h2 id="activity-heading">Acompanhamento</h2>
+      <p id="activity-text"></p>
+      <progress id="progress" max="100" aria-label="Progresso do envio" hidden></progress>
+      <label id="reselect-label" for="reselect" hidden>Selecionar novamente o mesmo arquivo</label>
+      <input id="reselect" type="file" accept=".m4a,.aac,.mp3,.wav" hidden>
+      <div class="actions"><button id="pause" type="button" hidden>Pausar envio</button><button id="retry" type="button" hidden>Tentar novamente</button><button id="forget" type="button">Esquecer acompanhamento</button></div>
+    </section>
+    <section id="result" aria-labelledby="result-heading" hidden>
+      <h2 id="result-heading">Transcrição</h2>
+      <button id="copy" type="button">Copiar texto</button>
+      <label for="transcript">Texto completo</label><textarea id="transcript" readonly rows="12"></textarea>
+      <div id="segments"></div>
+    </section>
+    <footer>Este navegador guarda apenas metadados do envio para permitir a retomada. O áudio e a transcrição não são salvos aqui.</footer>
+  </main>
+</body>
+</html>

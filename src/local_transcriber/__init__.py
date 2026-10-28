@@ -1,8 +1,29 @@
 """Public API for the Local Transcriber persistence core."""
 
+from .antigravity_client import AntigravityTransport, find_antigravity_cli
+from .chatgpt_auth import (
+    ChatGPTAuthManager,
+    ChatGPTTokens,
+    ChatGPTTokenStore,
+    validate_id_token,
+)
+from .chatgpt_client import ChatGPTTransport
 from .config import AppConfig, RuntimePaths
 from .database import SCHEMA_VERSION, Database
-from .exceptions import LeaseOwnershipLost, RecordingHasActiveJobsError
+from .exceptions import (
+    AntigravityError,
+    AntigravityInferenceError,
+    AntigravityUnavailableError,
+    ChatGPTAuthError,
+    ChatGPTError,
+    ChatGPTInferenceError,
+    ChatGPTLimitError,
+    ChatGPTModelUnavailableError,
+    ChatGPTServiceUnavailableError,
+    ChatGPTTokenRevokedError,
+    LeaseOwnershipLost,
+    RecordingHasActiveJobsError,
+)
 from .exporters import ExportFormat, TranscriptExporter, render_transcript
 from .media import (
     ALLOWED_EXTENSIONS,
@@ -43,9 +64,12 @@ from .models_manager import (
 from .queueing import TranscriptionQueue, TranscriptionWorker
 from .repository import Repository
 from .summarizer import (
+    ChartVisualizationEntry,
     ExecutiveSummary,
     FlashcardEntry,
     GlossaryEntry,
+    LLMTransport,
+    OllamaTransport,
     OllamaUnavailableError,
     ParsedSegment,
     SummaryConfig,
@@ -70,8 +94,24 @@ from .transcription import (
 )
 
 __all__ = [
-    "AppConfig",
     "ALLOWED_EXTENSIONS",
+    "AntigravityError",
+    "AntigravityInferenceError",
+    "AntigravityTransport",
+    "AntigravityUnavailableError",
+    "AppConfig",
+    "ChartVisualizationEntry",
+    "ChatGPTAuthError",
+    "ChatGPTAuthManager",
+    "ChatGPTError",
+    "ChatGPTInferenceError",
+    "ChatGPTLimitError",
+    "ChatGPTModelUnavailableError",
+    "ChatGPTServiceUnavailableError",
+    "ChatGPTTokenRevokedError",
+    "ChatGPTTokenStore",
+    "ChatGPTTokens",
+    "ChatGPTTransport",
     "Database",
     "DuplicateMediaError",
     "ExecutiveSummary",
@@ -83,10 +123,8 @@ __all__ = [
     "JobEvent",
     "JobPhase",
     "JobStatus",
+    "LLMTransport",
     "LeaseOwnershipLost",
-    "OllamaUnavailableError",
-    "ParsedSegment",
-    "RecordingHasActiveJobsError",
     "MediaImportError",
     "MediaImportSettings",
     "MediaInfo",
@@ -98,7 +136,11 @@ __all__ = [
     "ModelManager",
     "ModelNotInstalledError",
     "ModelStatus",
+    "OllamaTransport",
+    "OllamaUnavailableError",
+    "ParsedSegment",
     "Recording",
+    "RecordingHasActiveJobsError",
     "RecordingSearchResult",
     "Repository",
     "RuntimePaths",
@@ -113,10 +155,10 @@ __all__ = [
     "TranscriptExporter",
     "TranscriptSummarizer",
     "TranscriptSummary",
+    "TranscriptionCancelled",
+    "TranscriptionEngine",
     "TranscriptionJob",
     "TranscriptionMetrics",
-    "TranscriptionEngine",
-    "TranscriptionCancelled",
     "TranscriptionQueue",
     "TranscriptionRequest",
     "TranscriptionService",
@@ -132,6 +174,8 @@ __all__ = [
     "ResolvedProfile",
     "RuntimeCapabilities",
     "RuntimeProfileError",
+    "find_antigravity_cli",
     "render_transcript",
     "sanitize_filename",
+    "validate_id_token",
 ]

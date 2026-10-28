@@ -1,188 +1,49 @@
-# Estado atual do projeto
+# Estado atual do projeto (`Local Transcriber`)
 
-> Fotografia atualizada em 2026-10-13 após manutenção de instalação 8H;
-> estados datados anteriores e resultados 8C são históricos. Atualize ao fim de cada fase;
-> não reescreva os relatórios históricos de fases concluídas.
+> Atualizado em: 2026-10-27. Histórico detalhado das fases 1 a 8I preservado em `docs/archive/pre-slim-2026-10-25/` e nos relatórios `docs/PHASE_*.md`.
 
-O **Local Transcriber** é uma aplicação local para catalogar gravações e persistir o
-ciclo de vida de transcrições. A arquitetura atual é um pacote Python com modelos de
-domínio, biblioteca de mídia, engine desacoplado, fila persistente, worker local, CLI,
-API FastAPI restrita ao localhost, interface web local, eventos SSE, exportadores determinísticos,
-resumo estruturado com Ollama local e persistência de metadados em SQLite; mídias, modelos e
-demais dados de runtime ficam fora do repositório.
+## Fotografia Técnica Atual
 
-- Versão do pacote: `0.7.1`.
-- Schema SQLite: v4.
-- Etapas concluídas: 1, fundação e persistência; 2, biblioteca de mídia e exportadores;
-  3, Faster Whisper, gerenciamento explícito de modelos e CLI; 4, fila persistente;
-  5, API HTTP local e SSE; 6, interface web local; 7, integração e validação real do MVP;
-  7B, aceleração CUDA local e resiliência da exclusão durante jobs ativos; 8, resumo estruturado
-  com Ollama local e integração web completa (visualização e download); 8B, manutenção de
-  baseline, validação estática e consolidação factual da documentação.
-- Funcionalidades disponíveis: configuração de runtime, catálogo de matérias e gravações,
-  importação e inspeção de mídia por PyAV, duplicidade exata por SHA-256, pesquisa FTS5,
-  persistência do domínio, transcrição síncrona, enfileiramento, worker local sequencial,
-  progresso e eventos persistentes, cancelamento, retry, recuperação por lease e exportação
-  TXT, Markdown, SRT, WebVTT e JSON; API versionada sob `/api`, upload progressivo,
-  streaming de mídia com Range, downloads de exportações e replay de eventos SSE por
-  `Last-Event-ID`; módulo de sumarização pedagógica via Ollama local (`qwen2.5:3b`) com Map-Reduce
-  temporal, geração de sidecars `.resumo.md` e `.resumo.json`, rotas de consulta, geração e download;
-  interface web sem build e sem dependência de CDN para painel, matérias, biblioteca, fila,
-  leitura sincronizada, exportação, modelos e painel interativo de resumo com tese central,
-  roteiro falado para podcast, glossário com sincronização no player de áudio/vídeo, flashcards de
-  fixação ativa e downloads diretos de resumo; a especificação OpenAPI JSON continua local e não
-  existe visualizador HTML dos contratos; um único entrypoint expõe esses serviços. Gerações
-  monotônicas, cancelamento de requisições e validação explícita do contexto impedem que resultados
-  assíncronos obsoletos substituam a seleção atual. O iniciador `scripts/start-local-transcriber.ps1`
-  verifica `.venv` e a porta escolhida, mantém o processo em primeiro plano e fixa loopback e um worker.
-- Dependências validadas: PyAV 16.1.0, Faster Whisper 1.2.1, CTranslate2 4.8.2,
-  FastAPI 0.116.2, Starlette 0.48.0, Uvicorn 0.52.4 e python-multipart 0.0.32.
-- Manutenção 8C (2026-10-05) em checkout isolado com importação do pacote confirmada:
-  142 testes Python aprovados (24 da fila); Ruff check global aprovado e 28 arquivos
-  já formatados. Compilação de sintaxe de src/tests e git diff --check aprovados.
-  pip check não encontrou dependências quebradas, mas emitiu aviso de distribuição
-  inválida ~ocal-transcriber no ambiente existente, sem reparo de ambiente.
-  Estilo dos quatro arquivos preserva AST funcional; três docstrings de testes
-  foram refluídas. O teste de retries usa FakeClock estável para não competir
-  com expiração real; regressão separada prova recusa após esgotar a margem
-  de lease. A causa da falha histórica 8B não foi inferida retrospectivamente.
-  Validação somente com mocks/fixtures sintéticos, sem inferência/modelos reais,
-  download, daemon Ollama ou dados pessoais; versão 0.7.1 e schema v4 preservados.
-- Próxima etapa: futuras etapas de diarização ou transcrição contínua em tempo real.
-- `local-transcriber serve` aceita somente `127.0.0.1` e um consumidor de fila por
-  runtime. `Host` e `Origin` são validados, respostas não expõem caminhos físicos e a API
-  não inicia downloads de modelos.
-- O SSE usa consulta SQLite incremental e parametrizada por job e sequência, limita cada
-  lote, drena backlog antes de aguardar e não relê todo o histórico a cada polling.
-- Cada snapshot HTTP de job informa o último evento persistido. O navegador acompanha a
-  última sequência aceita de cada job, inicia o SSE nesse cursor e descarta IDs repetidos,
-  menores, fora de ordem ou pertencentes a listeners encerrados. O schema permanece v4.
-- O worker consulta primeiro, sem lock de escrita, se existe job pendente ou lease vencida.
-  Somente então entra em `BEGIN IMMEDIATE` e repete recuperação e seleção antes do
-  compare-and-set. Falhas `SQLITE_BUSY` e `SQLITE_LOCKED` na reivindicação recebem retry
-  curto e limitado; erros permanentes ou limite excedido encerram o controlador com falha
-  registrada, em vez de ficarem ocultos em loop.
-- A fila usa estados públicos preservados e fases operacionais separadas. A reivindicação
-  é transacional e condicionada ao estado; a posse usa worker e lease renovável.
-- Falhas SQLite transitórias do heartbeat têm retry limitado enquanto há margem segura.
-  Perda definitiva ativa um sinal cooperativo e usa `LeaseOwnershipLost`, sem classificar
-  a tentativa obsoleta como falha do engine nem alterar o job recuperado por outro worker.
-- Execução após crash é `at least once`: jobs recuperados podem reiniciar a inferência.
-  Somente a lease válida permite persistir progresso ou publicar. Pode haver breve
-  sobreposição de computação até o worker obsoleto atingir um ponto cooperativo, mas a
-  publicação final é transacional e limitada a uma transcrição por job.
-- O cancelamento é cooperativo, o worker padrão processa um job por vez e não há timeout
-  total artificial para gravações longas.
-- Três validações reais confirmaram o modelo `small` multilíngue, carregamento local,
-  inferência CPU `int8`, idioma detectado, VAD, timestamps por palavra, métricas, cinco
-  exportações e recuperação de estado. A terceira percorreu FastAPI, fila, worker, SSE,
-  interface web, busca e streaming de mídia em uma amostra curta controlada.
-- A primeira execução registrou RTF 1,612. A segunda usou áudio de aproximadamente
-  50,97 segundos, produziu 5 segmentos e 78 palavras e registrou cerca de 24,35 segundos
-  persistidos, 25,26 segundos de parede, RTF 0,4778 e pico aproximado de 709,9 MiB.
-- A segunda execução ficou aproximadamente 2,09 vezes mais rápida que tempo real. Caches,
-  aquecimento, conteúdo e duração podem influenciar a diferença entre as duas medições.
-- A terceira execução teve 18,23 segundos de mídia, 14,88 segundos de processamento
-  persistido e RTF aproximado de 0,816, com 3 segmentos e 41 palavras. Uma amostragem de
-  memória iniciada após a finalização observou cerca de 132,8 MiB de working set e 2.394,9
-  MiB de memória privada no processo; não é medição de pico nem benchmark comparável.
-- Uma observação operacional posterior reiniciou o computador com job em andamento; após a
-  nova inicialização do serviço, a fila recuperou o estado persistido e o job concluiu.
-  Isso confirma recuperação ponta a ponta, sem medir latência de lease ou qualidade do
-  modelo.
-- A estrutura temporal e os números principais foram validados, com erros observados em
-  vocabulário técnico. Sem gabarito textual independente, nenhuma taxa de precisão foi
-  calculada.
-- No Windows, a aplicação registra apenas no processo atual os diretórios padrão de CUDA
-  12 e cuDNN 9 antes de importar CTranslate2. Com CUDA Toolkit 12.8.2, cuBLAS 12 e cuDNN
-  9.26.0.51 instalados explicitamente pelo operador, `config check` confirmou GPU e
-  `int8_float16` sem erro. Não há modificação global de `PATH`.
-- A comparação real com `small`, VAD e timestamps, em 33,97 s de mídia, registrou
-  aproximadamente 118,32 s de processamento CPU `int8` (RTF 3,482) e 19,79 s em CUDA
-  `int8_float16` (RTF 0,583). É uma amostra curta e inclui carregamento; não é benchmark
-  de carga longa. A amostra controlada não teve segmentos ou palavras. O operador relatou
-  testes posteriores de áudio em CUDA, sem métricas coletadas por esta entrega.
-- A exclusão de uma gravação com job `pending` ou `running` agora recebe conflito e preserva
-  gravação, mídia e job. Uma ausência excepcional de job reivindicado é tratada como perda
-  de lease, sem encerrar o worker.
-- Fora do MVP atual: diarização, microfone ao vivo e Home Assistant (a sumarização estruturada com Ollama local restringe-se estritamente ao localhost).
+- **Versão do pacote**: `0.7.1` | **Schema SQLite core**: `v4` | **Python**: `>=3.11` (validado em 3.13 x64).
+- **Suíte de testes confirmada**: **473 testes aprovados** na suíte completa (incluindo 120 de gateway remoto, 53 de upload resumable, 101 de sessão remota, 36 de ChatGPT/SIWC, 26 de sumarização e 24 de fila/leases). Ruff `check`, formatação dos arquivos Python alterados e `pip check` aprovados; a formatação global aponta blocos Python em dois documentos preexistentes da Etapa 2, preservados nesta entrega.
+- **Módulos ativos em `src/local_transcriber/`**:
+  - **Core e Persistência**: `config.py` (`%LOCALAPPDATA%\LocalTranscriber`), `models.py`, `database.py` (SQLite v4), `repository.py` (FTS5 Unicode parametrizado), `media.py` (importação atômica PyAV + SHA-256, bloqueio de exclusão com job ativo), `exporters.py` (`TXT`, `MD`, `SRT`, `VTT`, `JSON`).
+  - **Transcrição e Fila**: `models_manager.py` (download só com `--confirm`), `transcription.py` (`FasterWhisperEngine` com `local_files_only=True`, perfis `cpu` `int8`, `cuda` `int8_float16` via `os.add_dll_directory` e `auto`), `queueing.py` (fila persistente, pré-consulta readonly antes de `BEGIN IMMEDIATE`, leases com heartbeat e `LeaseOwnershipLost`).
+  - **API Local e Web (`127.0.0.1:8765`)**: `api.py` (FastAPI loopback, consumidor único, Range de mídia, SSE incremental com cursor `last_event_sequence` e `Last-Event-ID`, sem CDN/Swagger externo) e `web/` (UI vanilla com estados assíncronos monotônicos, `textContent` seguro e painel interativo de resumo).
+  - **Sumarização Estruturada (`summarizer.py`)**: Map-Reduce temporal em blocos de 20 min gerando `.resumo.md` e `.resumo.json` (schema 1.0.0: `executive`, `timeline`, `glossary`, `charts`, `flashcards`, `spoken_summary`) via `LLMTransport`:
+    1. `OllamaTransport` (padrão offline em `127.0.0.1:11434`, `qwen2.5:3b`);
+    2. `ChatGPTTransport` (`chatgpt_auth.py` + `chatgpt_client.py`, opt-in via OAuth 2.0 PKCE / OIDC SIWC com validação RS256/JWKS, ACL NTFS `icacls` e streaming `/v1/responses` com `gpt-6-luna`);
+    3. `AntigravityTransport` (`antigravity_client.py`, opt-in via CLI `agy`).
+  - **Ingestão Remota Privada — Fase 8J (`remote_gateway.py` + `remote_session.py`)**:
+    - **Etapa 8J-A (Concluída, evidência sintética)**: Gateway FastAPI isolado em `127.0.0.1:8766` sob `/remote/v1`, desligado por padrão, banco próprio `remote/gateway.sqlite3` (sem mudar o schema v4 do core), exigindo cabeçalho `Tailscale-User-Login` em allowlist, rejeitando `Tailscale-Funnel-Request`, validando `Host` bare + `Origin` HTTPS exato, cookie de sessão + CSRF HMAC-SHA256 (`remote/csrf.key` com ACL `icacls`), prevenção de IDOR por HMAC da identidade e upload com `Content-Length` estrito, limite de bytes, disco livre e idempotência fail-closed (409).
+    - **Etapa 8J-1 / Etapa 0 (Gate técnico sintético aprovado pelo coordenador em 2026-10-25)**: `RemoteSessionManager` (`local-transcriber remote-session start|status|stop`), `ProcessVerifier` Win32 64-bit (`wintypes.HANDLE` + timestamp de criação + tokenização exata de `--session-id`), controle seletivo `tailscale serve --https=443` (bloqueando Funnel e preservando configurações de terceiros), trava `.session.lock` e journal transacional persistido antes dos efeitos (`prepared`, `gateway`, `activating`, `active`). Homologação física em hardware/Tailscale/iPad real permanece pendente para a Etapa 8J-B.
+    - **Etapa 8J-2 (Concluída, evidência sintética em 2026-10-25)**: Seleção remota de matérias autorizadas via `GET /remote/v1/subjects` direto no `Repository` (sem chamada HTTP ao Core); `allowed_subjects` em `gateway.json` com fallback para `subject_id` legado (singleton) restrito à ausência da chave (rejeitando nulo explícito e lista vazia com ou sem legado), recusa de `allow_all_subjects` e checagem no `lifespan`; seleção por cabeçalho `X-Subject-Id` no upload vinculada ao fingerprint SHA-256 e fail-closed com erro 409 em replays de fingerprints legados (sem apagar claims nem duplicar registros); rate limiting em memória bounded (100 identidades, TTL 300s, relógio monotônico, lock de thread) com resposta 429 e `Retry-After` positivo sem queimar chaves de idempotência (30 tokens leitura com burst 30 / refill 0.5/s; 5 tokens mutação com burst 5 / refill 1/12s).
+- **Ferramentas do Agente (`.codex/config.toml`)**:
+  - MCPs configurados e validados: `filesystem` (restrito à raiz), `github` separado (`scripts/start-github-mcp.ps1`), `git`, `graphify` (`graphify-out/graph.json`) e `serena` (LSP/Pyright para leitura simbólica cirúrgica).
 
-Referências: [contrato](PROJECT_CONTRACT.md), [arquitetura viva](FOUNDATION.md),
-[roadmap](ROADMAP.md), [Etapa 1](PHASE_01_FOUNDATION.md),
-[Etapa 2](PHASE_02_MEDIA_LIBRARY.md), [Etapa 3](PHASE_03_WHISPER_AND_CLI.md),
-[validação real 3B](PHASE_03B_REAL_VALIDATION.md),
-[segunda validação real 3C](PHASE_03C_SECOND_REAL_VALIDATION.md) e
-[Etapa 4](PHASE_04_PERSISTENT_QUEUE.md),
-[correção complementar 4B](PHASE_04B_LEASE_RELIABILITY.md) e
-[Etapa 5](PHASE_05_LOCAL_API_AND_SSE.md) e
-[correção complementar 5B](PHASE_05B_OFFLINE_DOCS_AND_INCREMENTAL_SSE.md) e
-[Etapa 6](PHASE_06_WEB_INTERFACE.md) e
-[correção complementar 5C](PHASE_05C_SQLITE_CONTENTION_RELIABILITY.md) e
-[correção complementar 6B](PHASE_06B_ASYNC_CONCURRENCY_RELIABILITY.md) e
-[Etapa 7](PHASE_07_MVP_INTEGRATION_AND_REAL_VALIDATION.md),
-[correção complementar 7B](PHASE_07B_LOCAL_CUDA_ACCELERATION.md),
-[Etapa 8](PHASE_08_STRUCTURED_SUMMARIZER_AND_WEB_INTEGRATION.md) e
-[manutenção e validação de baseline 8B](PHASE_08B_MAINTENANCE_VALIDATION_2026-10-05.md).
+### Etapa 8J-3 — Upload resumable (implementada em 2026-10-26)
 
-Complemento atual: [manutenção 8C](PHASE_08C_STYLE_AND_HEARTBEAT_TESTS_2026-10-05.md).
-Publicação conjunta da Etapa 8 e manutenções 8B/8C autorizada por Erick em
-2026-10-05 e consolidada neste commit; SHA e push são verificáveis no Git.
-Etapas futuras não iniciadas.
+- `POST/GET/PATCH/DELETE /remote/v1/uploads/resumable` e `POST .../{upload_id}/finalize`, com fingerprint dos campos imutáveis, autorização por identidade e os mesmos controles de Host, Origin, Funnel, CSRF e taxa do gateway.
+- Sessões, manifesto e metadados de importação somente em `remote/gateway.sqlite3`; chunks sequenciais de 8 MiB (último parcial) no staging, SHA-256, flush/fsync, rename e commit transacional do offset. Schema v4 e endpoint legado preservados.
+- Montagem em segundo plano, importação via `MediaLibrary` e enfileiramento opcional na fila existente, sem criar worker de transcrição. Marcador `importing` sem confirmação do Core retorna `409 import_outcome_unknown`; gravação já confirmada permite retomar apenas enfileiramento/conclusão.
+- TTL fixo de 24 h, reserva conservadora de disco com sessões ativas, reconciliação no startup, GC a cada 5 min e retenção conservadora de tombstones por pelo menos 7 dias. Evidência sintética: 137 testes no comando focado de gateway/resumable e 473 na suíte completa; homologação física permanece pendente.
 
-## Manutenção 8H: instalação para terceiros (2026-10-13)
+### Correções técnicas e Fechamento da Etapa 8J-3 (2026-10-27)
 
-Repositório público e main remoto confirmados em 5cfc7b8. Novo instalador
-Windows x64/Python 3.13 cria venv e instala pacote normal sem extra dev, modelos
-ou daemons automáticos. Guia ZIP/Git, CPU primeiro, download explícito, Ollama
-opcional e diagnóstico disponíveis. LICENSE pessoal/não comercial escolhido
-expressamente por Erick e incluído no pacote; não concede uso comercial.
-Snapshot publicado mais entrega mínima instalado em venv novo no mesmo host:
-wheel com seis assets e licença, CLI, HTTP/interface e SQLite sintético aprovados,
-sem copiar modelos/dados e sem inferência. Suíte existente: 150 pass; Ruff,
-formatação, sintaxe e pip check aprovados. Workflow Windows preparado; não
-executado no GitHub durante a validação; publicação autorizada depois por Erick.
-Não homologados outro computador/OS,
-ARM, offline inicial ou qualidade semântica. 8G continua exigindo complemento.
-[Guia de instalação](INSTALLATION.md) e
-[relatório 8H e limites](PHASE_08H_GITHUB_INSTALLATION_2026-10-13.md).
-Os estados datados anteriores são históricos, sem ampliação de Etapa 9.
+- Correções R1–R8 implementadas após reprovação técnica: semáforo único para montagem/importação, capacidade de uma finalização em execução e duas pendentes; saturação retorna `503 finalization_busy` antes da transição. Reinício reconcilia sessões `assembling` para retomada explícita.
+- Limites ativos transacionais: 8 sessões por identidade e 64 globais (`429 active_session_limit_reached`). Expiração, conclusão e aborto liberam capacidade; importações ambíguas preservam a reserva. O upload legado desconta as reservas resumable de `3 * total_bytes` no pré-voo.
+- GC isola falhas de I/O por sessão/diretório e tenta novamente no próximo ciclo; falhas SQLite no coletor sinalizam indisponibilidade e bloqueiam endpoints resumable com 503 até um ciclo bem-sucedido.
+- Contrato HTTP alinhado para chunks curtos, ENOSPC (507), conflitos e cabeçalhos `Location`/`Retry-After: 2` no finalize 202. GET resumable exige Origin HTTPS e cookie autenticado por HMAC, vinculado à identidade e expiração, sem exigir CSRF na leitura; bootstrap permanece em `/session`.
+- Rejeições conhecidas anteriores ao commit do Core (duplicata, mídia inválida, formato/tamanho recusados) terminam em `aborted/media_rejected`, com limpeza e liberação da reserva; falhas potencialmente pós-commit continuam em `import_outcome_unknown`. Replay init reconcilia expiração e retorna 410.
+- **Gate técnico da Etapa 8J-3 aprovado e etapa encerrada em 2026-10-27**: **194 testes focados aprovados** (74 resumable + 120 gateway/Etapa 2), Ruff check e format check dos dois arquivos Python, `pip check` e `git diff --check`. Os 473 da suíte completa acima são evidência histórica da implementação inicial; homologação física Tailscale/iPad permanece para a Etapa 8J-B / Etapa 5.
 
-## 8H: validacao independente apos publicacao
+### Etapa 8J-4 — Interface web remota (implementação sintética em 2026-10-27)
 
-Commit d157c5c publicado em main. O workflow Windows installation concluiu com
-status success em runner windows-latest independente, com Python 3.13 x64:
-instalacao sem extra dev/modelos, pacote/assets, HTTP e SQLite sintetico aprovados.
-Nao e prova de inferencia/qualidade, todo hardware ou outros sistemas operacionais.
-[Validacao remota e limites](PHASE_08H_POSTPUBLICATION_WINDOWS_VALIDATION_2026-10-13.md).
+- Gateway serve `/`, `/remote`, `/remote/` e `/remote/assets/*` com fronteira Tailscale/Host/loopback e CSP existente. UI isolada em `remote_web/`, incluída em package data; sem dependências de frontend.
+- Formulário de matéria/áudio, SHA-256 incremental com fatias de 8 MiB e digest por chunk, upload resumable sequencial, metadados de retomada no navegador, reconciliação de offset, espera em 429/503, acompanhamento de job e leitura/cópia da transcrição.
+- GET de status resumable sem `Origin` permitido somente para ID exato, cookie e CSRF válidos, `Sec-Fetch-Site: same-origin` e `Sec-Fetch-Mode: cors`; demais métodos/rotas preservam a exigência anterior.
+- Evidência sintética: 221 testes focados aprovados (27 da interface e 194 regressões do gateway/resumable/Etapa 2), Ruff check/format, `pip check` e `git diff --check` aprovados. Wheel sintético mínimo construído e instalado em diretório isolado com os cinco assets. Safari/iPad físico, cabeçalhos produzidos pelo WebKit e tailnet externa permanecem para a Etapa 5.
 
-## Etapa 8J-A: Gateway Privado FastAPI em Loopback para Ingestão Remota (2026-10-24) — estado atual
+## Próximo Passo Permitido (Depende de Autorização Explícita)
 
-Implementado o gateway FastAPI dedicado (`remote_gateway.py`), desativado por padrão (configuração em `%LOCALAPPDATA%\LocalTranscriber\remote\gateway.json`) e com binding restrito exclusivamente ao loopback `127.0.0.1` (porta padrão `8766`, configurável via CLI), para viabilizar o envio de áudio e acompanhamento de jobs a partir de dispositivos móveis autorizados (ex.: iPad via Tailscale) sob o prefixo `/remote/v1`, sem expor a API de gerenciamento local nem o sintetizador LLM (Ollama/ChatGPT).
-
-O gateway possui banco de estado SQLite dedicado (`%LOCALAPPDATA%\LocalTranscriber\remote\gateway.sqlite3`) sem modificar o schema v4 do core database. Implementa:
-1. Autenticação mandatória pelo cabeçalho `Tailscale-User-Login` fornecido por proxy reverso local confiável contra allowlist estática (`allowed_identities`); cabeçalho ausente ou vazio resulta em 401; duplicado ou não autorizado resulta em 403; requisições contendo `Tailscale-Funnel-Request` são rejeitadas com 403.
-2. Binding público rejeitado (403) no nível do middleware HTTP.
-3. Exigência estrita de `Host` (bare hostname em allowlist, rejeitando porta/path/query/fragment/userinfo com 400) e `Origin` HTTPS exato em mutações (sem barra final ou porta inesperada com 403), sem CORS, com cookie contendo `session_id` aleatório (`SameSite=Strict`, `HttpOnly`, `Secure` no caminho `/remote/v1`) e token CSRF HMAC-SHA256 vinculado à sessão e à identidade, derivado de segredo `remote/csrf.key` protegido com ACL NTFS nativa no Windows (`icacls`), validada e reaplicada no startup.
-4. Prevenção de IDOR: registros e jobs são escopados pela chave HMAC da identidade no banco do gateway, proibindo a associação de `recording_id` completado a identidades distintas.
-5. Proteção de streaming e concorrência: cabeçalho `Content-Length` obrigatório (411 se ausente ou chunked), contagem de bytes em streaming abortando com 413 ao exceder limites, timeout total da recepção do corpo (`request_timeout_seconds`, padrão 600s), checagem antecipada de espaço livre em disco (`min_free_disk_bytes`) com lock de upload assíncrono serializando o fluxo dentro do gateway para mitigar concorrência TOCTOU (concorrência com importações locais simultâneas no core não medida em hardware real), e sanitização de `DuplicateMediaError` ou colisões SHA-256 retornando 409 genérico.
-6. Idempotência transacional e falha fechada: suporte a `Idempotency-Key`; `claim_upload` em estado `importing` recente retorna 409 busy; em retries pós-crash/timeout de claim `importing`, caso a mídia já exista no core repository, a requisição falha fechada com 409 sanitizado prevenindo IDOR (já que o schema v4 do core não armazena a identidade do gateway para provar a posse sem migração de banco); exclusão de gravação no core resulta em 410 no agendamento de jobs, liberando a claim no bloco `finally`.
-7. CLI com comando `local-transcriber remote-gateway serve --host 127.0.0.1 --port 8766`.
-8. Suíte de 83 testes determinísticos dedicados em `tests/test_remote_gateway.py` (100% aprovados) e 63 testes principais de regressão do core aprovados, com fixture de socket compatível com Windows.
-9. Portão de segurança futuro: a segurança física em rede real depende do provisionamento de proxy privado (Tailscale), que não foi ativado nem exposto publicamente nesta etapa.
-[Relatório da Etapa 8J-A](PHASE_08J_REMOTE_GATEWAY_2026-10-24.md).
-
-## Gate da Etapa 1 remota — revisão do coordenador (2026-10-25)
-
-Gate técnico aprovado para servir de base à Etapa 2, limitado à evidência sintética. A Etapa 0 foi o complemento corretivo da Etapa 1. O worker registrou 194 testes focados e 384 na suíte completa aprovados; o coordenador conferiu as correções no código e nos testes, sem reexecutar a suíte. Homologação física Tailscale/iPad permanece pendente. Recuperação de journal incompleto pode exigir reconciliação manual e não há CAS contra alterações externas no Serve. A Etapa 2 foi posteriormente autorizada e entregue; veja o registro abaixo.
-
-## Etapa 8J — Etapa 2: Matérias autorizadas e rate limiting (2026-10-25)
-
-- **Status**: Implementada e validada sinteticamente, incluindo complemento de revisão.
-- `GET /remote/v1/subjects` retorna apenas `id` e `name` das matérias autorizadas, diretamente do Repository.
-- `allowed_subjects` exige allowlist; fallback para `subject_id` legado somente com chave ausente. Nulo explícito e lista vazia são rejeitados, inclusive com legado.
-- `X-Subject-Id` seleciona a matéria antes de claims e bytes, vinculando-a ao fingerprint de idempotência. Replays legados retornam 409, sem apagar claims.
-- Rate limiting por HMAC da identidade: burst de 30 tokens para leitura e 5 para mutações; reposição de 0.5/s e 1/12s; máximo de 100 identidades e TTL de 300s. Excesso retorna 429 com Retry-After antes de consumir chaves de idempotência.
-- Worker registrou 420 testes aprovados, incluindo 120 de gateway, Ruff, formatação e pip check. Coordenador confirmou a correção, 11 testes de configuração, Ruff, formatação, pip check e git diff --check.
-- Schema core v4, worker único e barreiras de segurança preservados. Homologação física Tailscale/iPad permanece pendente.
-- **Próximo passo**: Etapa 3 (upload particionado/resumable), não iniciada e dependente de autorização explícita.
-- [Plano](REMOTE_ACCESS_STAGE2_INTEGRATION_PLAN.md) e [evidências](PHASE_08J_STAGE2_REMOTE_SUBJECTS_AND_RATE_LIMIT_2026-10-25.md).
+- **Fase 8J — Etapa 5**: homologação física em Safari/iPad e tailnet externa, incluindo retomada após fechamento da aba, segurança de headers e leitura real da transcrição. Gate técnico sintético da Etapa 4 revisado e aprovado pelo coordenador em 2026-10-27.

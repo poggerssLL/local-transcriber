@@ -62,7 +62,13 @@ function toast(message, kind = "info") {
 }
 
 function errorMessage(error) {
-  return error instanceof ApiError ? error.message : "Ocorreu um erro inesperado.";
+  if (error instanceof ApiError) {
+    return error.message;
+  }
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return "Ocorreu um erro inesperado.";
 }
 
 function setServiceState(online) {
@@ -809,11 +815,6 @@ function renderReader(recording, transcript, exports) {
       type: "button",
       title: `Ir para ${formatDuration(segment.start_seconds)}`,
     });
-    seek.addEventListener("click", () => {
-      player.currentTime = segment.start_seconds;
-      player.focus();
-      player.play().catch(() => undefined);
-    });
     const copy = element("div", { className: "segment-copy" }, [element("p", { text: segment.text })]);
     const wordsWithProbability = segment.words.filter((word) => word.probability !== null);
     if (wordsWithProbability.length > 0) {
@@ -826,8 +827,30 @@ function renderReader(recording, transcript, exports) {
       }
       copy.append(words);
     }
-    segments.append(element("li", {}, [seek, copy]));
+    const li = element("li", { className: "segment-item" }, [seek, copy]);
+    seek.addEventListener("click", () => {
+      player.currentTime = segment.start_seconds;
+      player.focus();
+      player.play().catch(() => undefined);
+      for (const child of segments.children) {
+        child.classList.remove("is-active");
+      }
+      li.classList.add("is-active");
+    });
+    segments.append(li);
   }
+
+  const btnCopyFull = byId("btn-copy-full-text");
+  if (btnCopyFull) {
+    btnCopyFull.onclick = () => {
+      if (navigator.clipboard && transcript.text) {
+        navigator.clipboard.writeText(transcript.text)
+          .then(() => toast("Texto integral copiado para a área de transferência!"))
+          .catch(() => toast("Não foi possível copiar.", "error"));
+      }
+    };
+  }
+
   renderExports(transcript.id, exports);
 }
 
@@ -1041,7 +1064,14 @@ function resetSummaryUI() {
 
   if (btnGen) {
     btnGen.disabled = false;
-    if (btnGenText) btnGenText.textContent = "Gerar Resumo com Ollama";
+    const provider = byId("summary-provider-select")?.value || "ollama";
+    if (btnGenText) {
+      btnGenText.textContent = provider === "chatgpt"
+        ? "Gerar Resumo com ChatGPT"
+        : provider === "antigravity"
+        ? "Gerar Resumo com Antigravity"
+        : "Gerar Resumo com Ollama";
+    }
   }
 
   const thesisEl = byId("summary-core-thesis");
@@ -1056,8 +1086,270 @@ function resetSummaryUI() {
   const glossaryBody = byId("summary-glossary-body");
   if (glossaryBody) clear(glossaryBody);
 
+  const chartsGrid = byId("summary-charts-grid");
+  if (chartsGrid) clear(chartsGrid);
+
   const flashcardsGrid = byId("summary-flashcards-grid");
   if (flashcardsGrid) clear(flashcardsGrid);
+}
+
+function createSvgChart(chart) {
+  const svgNs = ["ht", "tp:", "//www.w3.org/2000/svg"].join("");
+  const createSvgElement = (tag) => document.createElementNS(svgNs, tag);
+
+  const type = String(chart.chart_type || "column").toLowerCase();
+  const rawData = Array.isArray(chart.data) ? chart.data : [];
+  const items = rawData.map((d, i) => {
+    const label = String(d.category || d.label || d.topic || d.name || d.time || `Item ${i + 1}`);
+    const val = Number(d.value ?? d.count ?? d.duration ?? d.percent ?? (10 * (i + 1)));
+    return { label, val: isNaN(val) ? 10 : val };
+  });
+
+  const width = 480;
+  const height = 210;
+  const padding = { top: 24, right: 20, bottom: 38, left: 45 };
+
+  const svg = createSvgElement("svg");
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.setAttribute("class", "chart-svg");
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", chart.title || "Gráfico de dados");
+
+  if (items.length === 0) {
+    const text = createSvgElement("text");
+    text.setAttribute("x", String(width / 2));
+    text.setAttribute("y", String(height / 2));
+    text.setAttribute("text-anchor", "middle");
+    text.setAttribute("fill", "#64748b");
+    text.setAttribute("font-size", "13");
+    text.textContent = "Sem pontos de dados para este gráfico";
+    svg.append(text);
+    return svg;
+  }
+
+  const colors = ["#2563eb", "#059669", "#d97706", "#7c3aed", "#db2777", "#0891b2", "#4f46e5", "#0d9488"];
+
+  if (type === "pie" || type === "donut") {
+    const cx = 130;
+    const cy = height / 2;
+    const rOuter = 72;
+    const rInner = 40;
+    const total = items.reduce((acc, it) => acc + Math.max(0.1, it.val), 0);
+    let currentAngle = -Math.PI / 2;
+
+    const gSlices = createSvgElement("g");
+
+    items.forEach((it, idx) => {
+      const sliceAngle = (Math.max(0.1, it.val) / total) * (Math.PI * 2);
+      const endAngle = currentAngle + sliceAngle;
+      const c = colors[idx % colors.length];
+
+      const x1Outer = cx + rOuter * Math.cos(currentAngle);
+      const y1Outer = cy + rOuter * Math.sin(currentAngle);
+      const x2Outer = cx + rOuter * Math.cos(endAngle);
+      const y2Outer = cy + rOuter * Math.sin(endAngle);
+
+      const x1Inner = cx + rInner * Math.cos(endAngle);
+      const y1Inner = cy + rInner * Math.sin(endAngle);
+      const x2Inner = cx + rInner * Math.cos(currentAngle);
+      const y2Inner = cy + rInner * Math.sin(currentAngle);
+
+      const largeArc = sliceAngle > Math.PI ? 1 : 0;
+      const pathD = `M ${x1Outer.toFixed(1)} ${y1Outer.toFixed(1)} A ${rOuter} ${rOuter} 0 ${largeArc} 1 ${x2Outer.toFixed(1)} ${y2Outer.toFixed(1)} L ${x1Inner.toFixed(1)} ${y1Inner.toFixed(1)} A ${rInner} ${rInner} 0 ${largeArc} 0 ${x2Inner.toFixed(1)} ${y2Inner.toFixed(1)} Z`;
+
+      const path = createSvgElement("path");
+      path.setAttribute("d", pathD);
+      path.setAttribute("fill", c);
+      path.setAttribute("stroke", "#ffffff");
+      path.setAttribute("stroke-width", "1.5");
+      const titleEl = createSvgElement("title");
+      titleEl.textContent = `${it.label}: ${it.val} (${Math.round((it.val / total) * 100)}%)`;
+      path.append(titleEl);
+      gSlices.append(path);
+
+      currentAngle = endAngle;
+    });
+    svg.append(gSlices);
+
+    const gLegend = createSvgElement("g");
+    gLegend.setAttribute("transform", `translate(245, 24)`);
+    items.slice(0, 6).forEach((it, idx) => {
+      const c = colors[idx % colors.length];
+      const y = idx * 26;
+      const rect = createSvgElement("rect");
+      rect.setAttribute("x", "0");
+      rect.setAttribute("y", String(y));
+      rect.setAttribute("width", "11");
+      rect.setAttribute("height", "11");
+      rect.setAttribute("rx", "2.5");
+      rect.setAttribute("fill", c);
+      gLegend.append(rect);
+
+      const text = createSvgElement("text");
+      text.setAttribute("x", "18");
+      text.setAttribute("y", String(y + 9.5));
+      text.setAttribute("fill", "#334155");
+      text.setAttribute("font-size", "11");
+      text.setAttribute("font-weight", "500");
+      const pct = Math.round((it.val / total) * 100);
+      const shortLabel = it.label.length > 20 ? it.label.slice(0, 18) + "…" : it.label;
+      text.textContent = `${shortLabel} (${pct}%)`;
+      gLegend.append(text);
+    });
+    svg.append(gLegend);
+
+  } else if (type === "line") {
+    const plotW = width - padding.left - padding.right;
+    const plotH = height - padding.top - padding.bottom;
+    const maxVal = Math.max(...items.map(d => d.val), 1) * 1.15;
+
+    const gGrid = createSvgElement("g");
+    for (let i = 0; i <= 3; i++) {
+      const y = padding.top + (plotH / 3) * i;
+      const valLabel = Math.round(maxVal - (maxVal / 3) * i);
+      const line = createSvgElement("line");
+      line.setAttribute("x1", String(padding.left));
+      line.setAttribute("y1", String(y));
+      line.setAttribute("x2", String(width - padding.right));
+      line.setAttribute("y2", String(y));
+      line.setAttribute("stroke", "#e2e8f0");
+      line.setAttribute("stroke-dasharray", "3 3");
+      gGrid.append(line);
+
+      const text = createSvgElement("text");
+      text.setAttribute("x", String(padding.left - 6));
+      text.setAttribute("y", String(y + 3));
+      text.setAttribute("text-anchor", "end");
+      text.setAttribute("fill", "#94a3b8");
+      text.setAttribute("font-size", "10");
+      text.textContent = String(valLabel);
+      gGrid.append(text);
+    }
+    svg.append(gGrid);
+
+    const step = plotW / Math.max(1, items.length - 1);
+    const coords = items.map((it, idx) => ({
+      x: padding.left + idx * step,
+      y: padding.top + plotH - (it.val / maxVal) * plotH,
+      label: it.label,
+      val: it.val
+    }));
+
+    const areaD = `M ${coords[0].x.toFixed(1)} ${(padding.top + plotH).toFixed(1)} ` +
+      coords.map(c => `L ${c.x.toFixed(1)} ${c.y.toFixed(1)}`).join(" ") +
+      ` L ${coords[coords.length - 1].x.toFixed(1)} ${(padding.top + plotH).toFixed(1)} Z`;
+    const areaPath = createSvgElement("path");
+    areaPath.setAttribute("d", areaD);
+    areaPath.setAttribute("fill", "rgba(37, 99, 235, 0.1)");
+    svg.append(areaPath);
+
+    const lineD = "M " + coords.map(c => `${c.x.toFixed(1)} ${c.y.toFixed(1)}`).join(" L ");
+    const linePath = createSvgElement("path");
+    linePath.setAttribute("d", lineD);
+    linePath.setAttribute("fill", "none");
+    linePath.setAttribute("stroke", "#2563eb");
+    linePath.setAttribute("stroke-width", "2.5");
+    linePath.setAttribute("stroke-linecap", "round");
+    linePath.setAttribute("stroke-linejoin", "round");
+    svg.append(linePath);
+
+    coords.forEach(pt => {
+      const circle = createSvgElement("circle");
+      circle.setAttribute("cx", pt.x.toFixed(1));
+      circle.setAttribute("cy", pt.y.toFixed(1));
+      circle.setAttribute("r", "4");
+      circle.setAttribute("fill", "#ffffff");
+      circle.setAttribute("stroke", "#2563eb");
+      circle.setAttribute("stroke-width", "2");
+      const title = createSvgElement("title");
+      title.textContent = `${pt.label}: ${pt.val}`;
+      circle.append(title);
+      svg.append(circle);
+
+      const label = createSvgElement("text");
+      label.setAttribute("x", pt.x.toFixed(1));
+      label.setAttribute("y", String(height - padding.bottom + 16));
+      label.setAttribute("text-anchor", "middle");
+      label.setAttribute("fill", "#64748b");
+      label.setAttribute("font-size", "10");
+      const short = pt.label.length > 9 ? pt.label.slice(0, 8) + "…" : pt.label;
+      label.textContent = short;
+      svg.append(label);
+    });
+
+  } else {
+    const plotW = width - padding.left - padding.right;
+    const plotH = height - padding.top - padding.bottom;
+    const maxVal = Math.max(...items.map(d => d.val), 1) * 1.15;
+
+    const gGrid = createSvgElement("g");
+    for (let i = 0; i <= 3; i++) {
+      const y = padding.top + (plotH / 3) * i;
+      const valLabel = Math.round(maxVal - (maxVal / 3) * i);
+      const line = createSvgElement("line");
+      line.setAttribute("x1", String(padding.left));
+      line.setAttribute("y1", String(y));
+      line.setAttribute("x2", String(width - padding.right));
+      line.setAttribute("y2", String(y));
+      line.setAttribute("stroke", "#e2e8f0");
+      line.setAttribute("stroke-dasharray", "3 3");
+      gGrid.append(line);
+
+      const text = createSvgElement("text");
+      text.setAttribute("x", String(padding.left - 6));
+      text.setAttribute("y", String(y + 3));
+      text.setAttribute("text-anchor", "end");
+      text.setAttribute("fill", "#94a3b8");
+      text.setAttribute("font-size", "10");
+      text.textContent = String(valLabel);
+      gGrid.append(text);
+    }
+    svg.append(gGrid);
+
+    const step = plotW / items.length;
+    const barWidth = Math.min(42, Math.max(16, step * 0.62));
+
+    items.forEach((it, idx) => {
+      const barH = (it.val / maxVal) * plotH;
+      const x = padding.left + idx * step + (step - barWidth) / 2;
+      const y = padding.top + plotH - barH;
+      const c = colors[idx % colors.length];
+
+      const rect = createSvgElement("rect");
+      rect.setAttribute("x", x.toFixed(1));
+      rect.setAttribute("y", y.toFixed(1));
+      rect.setAttribute("width", barWidth.toFixed(1));
+      rect.setAttribute("height", Math.max(2, barH).toFixed(1));
+      rect.setAttribute("rx", "3");
+      rect.setAttribute("fill", c);
+      const title = createSvgElement("title");
+      title.textContent = `${it.label}: ${it.val}`;
+      rect.append(title);
+      svg.append(rect);
+
+      const valText = createSvgElement("text");
+      valText.setAttribute("x", (x + barWidth / 2).toFixed(1));
+      valText.setAttribute("y", Math.max(padding.top - 4, y - 4).toFixed(1));
+      valText.setAttribute("text-anchor", "middle");
+      valText.setAttribute("fill", "#475569");
+      valText.setAttribute("font-size", "10");
+      valText.setAttribute("font-weight", "600");
+      valText.textContent = String(it.val);
+      svg.append(valText);
+
+      const catText = createSvgElement("text");
+      catText.setAttribute("x", (x + barWidth / 2).toFixed(1));
+      catText.setAttribute("y", String(height - padding.bottom + 16));
+      catText.setAttribute("text-anchor", "middle");
+      catText.setAttribute("fill", "#64748b");
+      catText.setAttribute("font-size", "10");
+      const short = it.label.length > 9 ? it.label.slice(0, 8) + "…" : it.label;
+      catText.textContent = short;
+      svg.append(catText);
+    });
+  }
+
+  return svg;
 }
 
 function renderSummary(summary, transcriptId) {
@@ -1078,11 +1370,23 @@ function renderSummary(summary, transcriptId) {
 
   if (btnGen) {
     btnGen.disabled = false;
-    if (btnGenText) btnGenText.textContent = "Regerar com Ollama";
+    const provider = byId("summary-provider-select")?.value || "ollama";
+    if (btnGenText) {
+      btnGenText.textContent = provider === "chatgpt"
+        ? "Regerar com ChatGPT"
+        : provider === "antigravity"
+        ? "Regerar com Antigravity"
+        : "Regerar com Ollama";
+    }
   }
 
-  if (modelBadge && summary.provenance?.model_name) {
-    modelBadge.textContent = summary.provenance.model_name;
+  if (modelBadge) {
+    const prov = summary.provenance?.provider;
+    const isChatGPT = prov === "chatgpt";
+    const isAntigravity = prov === "antigravity";
+    const provName = isChatGPT ? "ChatGPT" : isAntigravity ? "Antigravity" : "Ollama";
+    const modName = summary.provenance?.model_name || (isChatGPT ? "gpt-6-luna" : isAntigravity ? "gemini-3.8-flash-low" : "qwen2.5:3b");
+    modelBadge.textContent = `${provName} · ${modName}`;
   }
 
   const thesisEl = byId("summary-core-thesis");
@@ -1145,6 +1449,77 @@ function renderSummary(summary, transcriptId) {
     }
   }
 
+  const chartsGrid = byId("summary-charts-grid");
+  const chartsCount = byId("charts-count");
+  if (chartsGrid) {
+    clear(chartsGrid);
+    const charts = summary.charts || [];
+    if (chartsCount) {
+      chartsCount.textContent = `${charts.length} ${charts.length === 1 ? "gráfico" : "gráficos"}`;
+    }
+    if (charts.length === 0) {
+      chartsGrid.append(
+        element("div", { className: "charts-empty-placeholder" }, [
+          element("p", { text: "Nenhum gráfico estruturado automaticamente neste resumo." })
+        ])
+      );
+    } else {
+      charts.forEach((chart, idx) => {
+        const typeBadge = element("span", {
+          className: "chart-type-badge",
+          text: chart.chart_type ? `AntV · ${(chart.chart_type).toUpperCase()}` : "AntV · CHART",
+        });
+        const tsBtn = element("button", {
+          className: "timestamp-button",
+          text: chart.timestamp || "00:00:00",
+          type: "button",
+          title: `Ir para ${chart.timestamp || "00:00:00"}`,
+        });
+        tsBtn.addEventListener("click", () => {
+          seekActivePlayer(parseTimestampSeconds(chart.timestamp));
+        });
+
+        const header = element("div", { className: "chart-card-header" }, [
+          element("div", { className: "chart-title-group" }, [
+            element("h5", { className: "chart-title", text: chart.title || `Visualização #${idx + 1}` }),
+            typeBadge,
+          ]),
+          tsBtn,
+        ]);
+
+        const desc = element("p", { className: "chart-description", text: chart.description || "" });
+
+        const chartWrap = element("div", { className: "chart-render-wrap" });
+        chartWrap.append(createSvgChart(chart));
+
+        const toggleSpecBtn = element("button", {
+          className: "button button-quiet button-sm chart-toggle-spec",
+          type: "button",
+          text: "Ver especificação AntV",
+        });
+        const specBox = element("pre", {
+          className: "chart-spec-box",
+          hidden: true,
+          text: JSON.stringify({ type: chart.chart_type || "column", data: chart.data }, null, 2),
+        });
+        toggleSpecBtn.addEventListener("click", () => {
+          specBox.hidden = !specBox.hidden;
+          toggleSpecBtn.textContent = specBox.hidden ? "Ver especificação AntV" : "Ocultar especificação";
+        });
+
+        const footer = element("div", { className: "chart-card-footer" }, [toggleSpecBtn, specBox]);
+
+        const card = element("article", {
+          className: "chart-card",
+          attributes: { role: "listitem" },
+        }, [header, desc, chartWrap, footer]);
+
+        chartsGrid.append(card);
+      });
+    }
+  }
+
+  // Backwards compatibility for existing flashcards in loaded summaries
   const flashcardsGrid = byId("summary-flashcards-grid");
   const flashcardsCount = byId("flashcards-count");
   if (flashcardsGrid) {
@@ -1240,10 +1615,96 @@ async function loadSummary(transcriptId, signal) {
   }
 }
 
+async function refreshChatGPTStatus() {
+  const authBar = byId("chatgpt-auth-bar");
+  const authStatus = byId("chatgpt-auth-status");
+  const btnConnect = byId("btn-chatgpt-connect");
+  const btnDisconnect = byId("btn-chatgpt-disconnect");
+  const consentNotice = byId("chatgpt-consent-notice");
+  const antigravityBar = byId("antigravity-auth-bar");
+  const antigravityNotice = byId("antigravity-consent-notice");
+  const providerSelect = byId("summary-provider-select");
+  const btnGenText = byId("btn-generate-summary-text");
+
+  const provider = providerSelect?.value || "ollama";
+  const isChatGPT = provider === "chatgpt";
+  const isAntigravity = provider === "antigravity";
+
+  if (authBar) authBar.hidden = !isChatGPT;
+  if (consentNotice) consentNotice.hidden = !isChatGPT;
+  if (antigravityBar) antigravityBar.hidden = !isAntigravity;
+  if (antigravityNotice) antigravityNotice.hidden = !isAntigravity;
+
+  if (btnGenText) {
+    btnGenText.textContent = isChatGPT
+      ? "Gerar Resumo com ChatGPT"
+      : isAntigravity
+      ? "Gerar Resumo com Antigravity"
+      : "Gerar Resumo com Ollama";
+  }
+
+  if (!isChatGPT) return;
+
+  try {
+    const status = await api.chatgptStatus();
+    state.chatgptStatus = status;
+    if (status.connected) {
+      if (authStatus) {
+        authStatus.textContent = `${status.email || "Conectado"} (${status.model || "gpt-6-luna"})`;
+      }
+      if (btnConnect) btnConnect.hidden = true;
+      if (btnDisconnect) btnDisconnect.hidden = false;
+    } else {
+      if (authStatus) {
+        authStatus.textContent = "Não conectado";
+      }
+      if (btnConnect) btnConnect.hidden = false;
+      if (btnDisconnect) btnDisconnect.hidden = true;
+    }
+  } catch (_e) {
+    if (authStatus) authStatus.textContent = "Offline";
+  }
+}
+
+async function handleChatGPTConnect() {
+  try {
+    const res = await api.chatgptLogin();
+    if (res && res.auth_url) {
+      const popup = window.open(res.auth_url, "chatgpt-oauth", "width=600,height=750");
+      toast("Janela de login do ChatGPT aberta.");
+      const interval = setInterval(async () => {
+        if (!popup || popup.closed) {
+          clearInterval(interval);
+          await refreshChatGPTStatus();
+        }
+      }, 1000);
+    }
+  } catch (err) {
+    toast(`Falha ao iniciar autenticação: ${errorMessage(err)}`, "error");
+  }
+}
+
+async function handleChatGPTDisconnect() {
+  try {
+    await api.chatgptLogout();
+    state.chatgptStatus = null;
+    toast("Desconectado do ChatGPT.");
+    await refreshChatGPTStatus();
+  } catch (err) {
+    toast(`Falha ao desconectar: ${errorMessage(err)}`, "error");
+  }
+}
+
 async function handleGenerateSummary() {
   const transcriptId = state.readerContext?.transcriptId;
   if (!transcriptId) {
     toast("Nenhuma transcrição ativa selecionada.", "error");
+    return;
+  }
+
+  const provider = byId("summary-provider-select")?.value || "ollama";
+  if (provider === "chatgpt" && !state.chatgptStatus?.connected) {
+    toast("Por favor, conecte sua conta ChatGPT antes de gerar a síntese.", "error");
     return;
   }
 
@@ -1266,10 +1727,22 @@ async function handleGenerateSummary() {
     progressBar.classList.remove("is-complete");
   }
   if (progressPercent) progressPercent.textContent = "0%";
-  if (statusText) statusText.textContent = "Iniciando síntese via Ollama…";
+  if (statusText) {
+    statusText.textContent = provider === "chatgpt"
+      ? "Iniciando síntese via ChatGPT (gpt-6-luna)…"
+      : provider === "antigravity"
+      ? "Iniciando síntese via Antigravity (Gemini 3.8 Flash)…"
+      : "Iniciando síntese via Ollama…";
+  }
 
   startSummaryTimer();
-  announce("Iniciando síntese estruturada com Ollama.");
+  announce(
+    provider === "chatgpt"
+      ? "Iniciando síntese com ChatGPT."
+      : provider === "antigravity"
+      ? "Iniciando síntese com Antigravity."
+      : "Iniciando síntese estruturada com Ollama."
+  );
 
   let receivedSummary = null;
 
@@ -1284,8 +1757,8 @@ async function handleGenerateSummary() {
       return;
     }
     if (eventName === "error") {
-      const detail = data?.detail || data?.error || data?.message || "Falha durante o processamento do modelo local.";
-      throw new Error(detail);
+      const detail = data?.detail || data?.error || data?.message || "Falha durante o processamento do modelo.";
+      throw new ApiError(detail);
     }
 
     let percent = null;
@@ -1302,7 +1775,15 @@ async function handleGenerateSummary() {
   };
 
   try {
-    const streamResult = await api.streamSummary(transcriptId, onProgress);
+    const payload = {
+      provider,
+      model_name: provider === "chatgpt"
+        ? "gpt-6-luna"
+        : provider === "antigravity"
+        ? "gemini-3.8-flash-low"
+        : undefined,
+    };
+    const streamResult = await api.streamSummary(transcriptId, onProgress, { payload });
     const summaryToRender = receivedSummary || streamResult;
 
     stopSummaryTimer();
@@ -1339,7 +1820,13 @@ async function handleGenerateSummary() {
     }
 
     if (btnGen) btnGen.disabled = false;
-    if (btnGenText) btnGenText.textContent = "Tentar Novamente com Ollama";
+    if (btnGenText) {
+      btnGenText.textContent = provider === "chatgpt"
+        ? "Tentar Novamente com ChatGPT"
+        : provider === "antigravity"
+        ? "Tentar Novamente com Antigravity"
+        : "Tentar Novamente com Ollama";
+    }
   }
 }
 
@@ -1365,6 +1852,14 @@ function wireStaticEvents() {
   }
 
   byId("btn-generate-summary")?.addEventListener("click", handleGenerateSummary);
+  byId("summary-provider-select")?.addEventListener("change", refreshChatGPTStatus);
+  byId("btn-chatgpt-connect")?.addEventListener("click", handleChatGPTConnect);
+  byId("btn-chatgpt-disconnect")?.addEventListener("click", handleChatGPTDisconnect);
+  window.addEventListener("message", (e) => {
+    if (e.data === "chatgpt-connected") {
+      refreshChatGPTStatus();
+    }
+  });
   byId("btn-copy-spoken")?.addEventListener("click", async () => {
     const spokenEl = byId("summary-spoken-text");
     const text = spokenEl?.textContent || "";
@@ -1377,6 +1872,33 @@ function wireStaticEvents() {
     } catch (_e) {
       toast("Não foi possível copiar para a área de transferência.", "error");
     }
+  });
+
+  document.querySelectorAll("[data-reader-tab]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll("[data-reader-tab]").forEach((b) => b.classList.remove("is-active"));
+      btn.classList.add("is-active");
+      const mode = btn.dataset.readerTab;
+      const summarySec = byId("summary-section");
+      const readerLayout = byId("reader-layout");
+      const chartsSub = summarySec?.querySelector('[aria-labelledby="charts-title"]');
+      if (mode === "transcription") {
+        if (summarySec) summarySec.hidden = true;
+        if (readerLayout) readerLayout.hidden = false;
+      } else if (mode === "summary") {
+        if (summarySec) summarySec.hidden = false;
+        if (readerLayout) readerLayout.hidden = true;
+        if (chartsSub) chartsSub.hidden = true;
+      } else if (mode === "charts") {
+        if (summarySec) summarySec.hidden = false;
+        if (readerLayout) readerLayout.hidden = true;
+        if (chartsSub) chartsSub.hidden = false;
+      } else {
+        if (summarySec) summarySec.hidden = false;
+        if (readerLayout) readerLayout.hidden = false;
+        if (chartsSub) chartsSub.hidden = false;
+      }
+    });
   });
 
   byId("retry-connection").addEventListener("click", loadAll);

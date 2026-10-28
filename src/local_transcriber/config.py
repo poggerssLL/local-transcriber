@@ -52,6 +52,10 @@ class RuntimePaths:
     def models(self) -> Path:
         return self.root / "models"
 
+    @property
+    def auth(self) -> Path:
+        return self.root / "auth"
+
     def resolve_relative(self, value: str) -> Path:
         relative = normalize_relative_path(value)
         candidate = (self.root / Path(*PurePosixPath(relative).parts)).resolve(strict=False)
@@ -60,7 +64,7 @@ class RuntimePaths:
         return candidate
 
     def ensure_directories(self) -> None:
-        for path in (self.root, self.media, self.exports, self.models):
+        for path in (self.root, self.media, self.exports, self.models, self.auth):
             path.mkdir(parents=True, exist_ok=True)
 
 

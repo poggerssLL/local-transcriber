@@ -1,0 +1,29 @@
+[mcp_servers.filesystem]
+command = "npx.cmd"
+args = ["-y", "@modelcontextprotocol/server-filesystem@2.0.1", "."]
+cwd = 'C:\Users\erick\OneDrive\Documentos\Local Transcriber'
+startup_timeout_sec = 60
+
+[mcp_servers.github]
+command = "powershell.exe"
+args = ["-NoLogo", "-NoProfile", "-NonInteractive", "-File", "scripts/start-github-mcp.ps1"]
+cwd = 'C:\Users\erick\OneDrive\Documentos\Local Transcriber'
+startup_timeout_sec = 60
+
+[mcp_servers.git]
+command = 'C:\Users\erick\AppData\Local\pipx\pipx\Cache\0f15e101ea703bc\Scripts\mcp-server-git.exe'
+args = ["-r", "."]
+cwd = 'C:\Users\erick\OneDrive\Documentos\Local Transcriber'
+startup_timeout_sec = 60
+
+[mcp_servers.graphify]
+command = 'C:\Users\erick\.local\bin\graphify-mcp.exe'
+args = ['C:\Users\erick\OneDrive\Documentos\Local Transcriber\graphify-out\graph.json']
+cwd = 'C:\Users\erick\OneDrive\Documentos\Local Transcriber'
+startup_timeout_sec = 60
+
+[mcp_servers.serena]
+command = 'C:\Users\erick\.local\bin\serena.exe'
+args = ["start-mcp-server", "--context", "ide-assistant", "--project", 'C:\Users\erick\OneDrive\Documentos\Local Transcriber', "--open-web-dashboard", "false", "--enable-web-dashboard", "false"]
+cwd = 'C:\Users\erick\OneDrive\Documentos\Local Transcriber'
+startup_timeout_sec = 120

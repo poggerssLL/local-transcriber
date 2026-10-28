@@ -1,0 +1,16 @@
+{
+  "models": [
+    {
+      "slug": "gpt-6-luna",
+      "visibility": "public",
+      "title": "GPT-6 Luna",
+      "description": "Preview reasoning model available for ChatGPT subscribers"
+    },
+    {
+      "slug": "gpt-4o",
+      "visibility": "public",
+      "title": "GPT-4o",
+      "description": "Omni multimodal model"
+    }
+  ]
+}

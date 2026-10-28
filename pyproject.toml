@@ -35,7 +35,10 @@ dev = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-local_transcriber = ["web/*.html", "web/*.css", "web/*.js"]
+local_transcriber = [
+    "web/*.html", "web/*.css", "web/*.js",
+    "remote_web/*.html", "remote_web/*.css", "remote_web/*.js",
+]
 
 [tool.pytest.ini_options]
 addopts = "-q --basetemp=.test-tmp"

@@ -13,11 +13,14 @@ import re
 import sys
 import urllib.error
 import urllib.request
+from abc import ABC, abstractmethod
 from collections.abc import Callable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from .exceptions import ChatGPTError
 
 logger = logging.getLogger(__name__)
 
@@ -78,8 +81,20 @@ class GlossaryEntry:
 
 
 @dataclass(frozen=True, slots=True)
+class ChartVisualizationEntry:
+    """Structured chart visualization of data or concepts from transcript (AntV format)."""
+
+    id: str
+    title: str
+    chart_type: str  # e.g., "column", "bar", "pie", "line", "mindmap"
+    description: str
+    data: list[dict[str, Any]]
+    timestamp: str = "00:00:00"
+
+
+@dataclass(frozen=True, slots=True)
 class FlashcardEntry:
-    """A question-and-answer study card for knowledge retention."""
+    """A question-and-answer study card for knowledge retention (deprecated in favor of charts)."""
 
     id: str
     question: str
@@ -104,8 +119,9 @@ class TranscriptSummary:
     executive: ExecutiveSummary
     timeline: list[TimelineEntry]
     glossary: list[GlossaryEntry]
-    flashcards: list[FlashcardEntry]
     spoken_summary: str
+    charts: list[ChartVisualizationEntry] = field(default_factory=list)
+    flashcards: list[FlashcardEntry] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize complete summary model to a JSON-compatible dictionary."""
@@ -146,6 +162,19 @@ class TranscriptSummary:
             for g in data.get("glossary") or []
         ]
 
+        charts = [
+            ChartVisualizationEntry(
+                id=str(c.get("id") or f"chart-{idx:02d}"),
+                title=str(c.get("title") or c.get("titulo") or f"Gráfico {idx}"),
+                chart_type=str(c.get("chart_type") or c.get("type") or "column"),
+                description=str(c.get("description") or c.get("descricao") or ""),
+                data=list(c.get("data") or []),
+                timestamp=str(c.get("timestamp") or "00:00:00"),
+            )
+            for idx, c in enumerate(data.get("charts") or [], start=1)
+            if isinstance(c, dict)
+        ]
+
         flashcards = [
             FlashcardEntry(
                 id=str(f.get("id") or ""),
@@ -154,6 +183,7 @@ class TranscriptSummary:
                 timestamp=str(f.get("timestamp") or "00:00:00"),
             )
             for f in data.get("flashcards") or []
+            if isinstance(f, dict)
         ]
 
         return cls(
@@ -162,8 +192,9 @@ class TranscriptSummary:
             executive=executive,
             timeline=timeline,
             glossary=glossary,
-            flashcards=flashcards,
             spoken_summary=str(data.get("spoken_summary") or ""),
+            charts=charts,
+            flashcards=flashcards,
         )
 
 
@@ -240,11 +271,150 @@ def _extract_json(text: str) -> dict[str, Any]:
         raise ValueError(f"Failed to decode JSON from model response: {err}") from err
 
 
-class TranscriptSummarizer:
-    """Pipeline for temporal Map-Reduce summarization using a local Ollama model."""
+class LLMTransport(ABC):
+    """Abstract base class for LLM inference transports in Map-Reduce summarization."""
 
-    def __init__(self, config: SummaryConfig | None = None) -> None:
+    @property
+    @abstractmethod
+    def provider_name(self) -> str:
+        """Provider identifier, e.g. 'ollama' or 'chatgpt'."""
+
+    @property
+    @abstractmethod
+    def model_name(self) -> str:
+        """Model identifier."""
+
+    @abstractmethod
+    def provenance_metadata(self) -> dict[str, Any]:
+        """Metadata recorded in summary provenance."""
+
+    @abstractmethod
+    def generate(
+        self,
+        prompt: str,
+        system_prompt: str | None = None,
+        json_format: bool = False,
+    ) -> str:
+        """Generate response text from LLM."""
+
+
+class OllamaTransport(LLMTransport):
+    """Local LLM inference transport using Ollama daemon."""
+
+    def __init__(self, config: SummaryConfig) -> None:
+        self.config = config
+
+    @property
+    def provider_name(self) -> str:
+        return "ollama"
+
+    @property
+    def model_name(self) -> str:
+        return self.config.model_name
+
+    def provenance_metadata(self) -> dict[str, Any]:
+        return {
+            "provider": self.provider_name,
+            "model_name": self.config.model_name,
+            "ollama_url": self.config.ollama_url,
+        }
+
+    def generate(
+        self,
+        prompt: str,
+        system_prompt: str | None = None,
+        json_format: bool = False,
+    ) -> str:
+        """Call Ollama /api/generate via pure urllib.request with robust error handling."""
+        endpoint = f"{self.config.ollama_url.rstrip('/')}/api/generate"
+        payload: dict[str, Any] = {
+            "model": self.config.model_name,
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "temperature": self.config.temperature,
+            },
+        }
+        if system_prompt:
+            payload["system"] = system_prompt
+        if json_format:
+            payload["format"] = "json"
+
+        body = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            endpoint,
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+            method="POST",
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=float(self.config.timeout)) as response:
+                status = response.status
+                if status != 200:
+                    raise OllamaUnavailableError(
+                        f"Ollama retornou status HTTP {status} em {endpoint}."
+                    )
+                raw_bytes = response.read()
+                raw_text = raw_bytes.decode("utf-8")
+                parsed = json.loads(raw_text)
+                return str(parsed.get("response") or "")
+
+        except urllib.error.HTTPError as err:
+            err_body = ""
+            try:
+                err_body = err.read().decode("utf-8")
+            except Exception:
+                pass
+
+            if err.code == 404:
+                raise OllamaUnavailableError(
+                    f"Modelo '{self.config.model_name}' não encontrado no Ollama em "
+                    f"'{self.config.ollama_url}' (HTTP 404). "
+                    f"Execute 'ollama pull {self.config.model_name}' para baixá-lo."
+                ) from err
+            raise OllamaUnavailableError(
+                f"Erro HTTP {err.code} retornado pelo Ollama: {err.reason}. {err_body}".strip()
+            ) from err
+
+        except urllib.error.URLError as err:
+            raise OllamaUnavailableError(
+                f"Não foi possível conectar ao serviço Ollama em '{self.config.ollama_url}' "
+                f"({err.reason}). Certifique-se de que o Ollama esteja em execução."
+            ) from err
+
+        except TimeoutError as err:
+            raise OllamaUnavailableError(
+                f"Tempo limite excedido ({self.config.timeout}s) ao aguardar resposta do Ollama "
+                f"para o modelo '{self.config.model_name}'."
+            ) from err
+
+        except json.JSONDecodeError as err:
+            raise OllamaUnavailableError(
+                f"Resposta recebida do Ollama não é um JSON válido: {err}"
+            ) from err
+
+        except Exception as err:
+            if isinstance(err, OllamaUnavailableError):
+                raise
+            raise OllamaUnavailableError(
+                f"Falha inesperada na comunicação com Ollama: {err}"
+            ) from err
+
+
+class TranscriptSummarizer:
+    """Pipeline for temporal Map-Reduce summarization using pluggable LLM transport."""
+
+    def __init__(
+        self,
+        config: SummaryConfig | None = None,
+        transport: LLMTransport | None = None,
+    ) -> None:
         self.config = config or SummaryConfig()
+        self.transport: LLMTransport = transport or OllamaTransport(self.config)
 
     def parse_transcript(self, text_or_path: str | Path) -> list[ParsedSegment]:
         """Parse transcript text or file into chronological ParsedSegment items.
@@ -447,102 +617,38 @@ class TranscriptSummarizer:
         system_prompt: str | None = None,
         json_format: bool = False,
     ) -> str:
-        """Call Ollama /api/generate via pure urllib.request with robust error handling."""
-        endpoint = f"{self.config.ollama_url.rstrip('/')}/api/generate"
-        payload: dict[str, Any] = {
-            "model": self.config.model_name,
-            "prompt": prompt,
-            "stream": False,
-            "options": {
-                "temperature": self.config.temperature,
-            },
-        }
-        if system_prompt:
-            payload["system"] = system_prompt
-        if json_format:
-            payload["format"] = "json"
-
-        body = json.dumps(payload).encode("utf-8")
-        req = urllib.request.Request(
-            endpoint,
-            data=body,
-            headers={
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-            },
-            method="POST",
-        )
-
-        try:
-            with urllib.request.urlopen(req, timeout=float(self.config.timeout)) as response:
-                status = response.status
-                if status != 200:
-                    raise OllamaUnavailableError(
-                        f"Ollama retornou status HTTP {status} em {endpoint}."
-                    )
-                raw_bytes = response.read()
-                raw_text = raw_bytes.decode("utf-8")
-                parsed = json.loads(raw_text)
-                return str(parsed.get("response") or "")
-
-        except urllib.error.HTTPError as err:
-            err_body = ""
-            try:
-                err_body = err.read().decode("utf-8")
-            except Exception:
-                pass
-
-            if err.code == 404:
-                raise OllamaUnavailableError(
-                    f"Modelo '{self.config.model_name}' não encontrado no Ollama em "
-                    f"'{self.config.ollama_url}' (HTTP 404). "
-                    f"Execute 'ollama pull {self.config.model_name}' para baixá-lo."
-                ) from err
-            raise OllamaUnavailableError(
-                f"Erro HTTP {err.code} retornado pelo Ollama: {err.reason}. {err_body}".strip()
-            ) from err
-
-        except urllib.error.URLError as err:
-            raise OllamaUnavailableError(
-                f"Não foi possível conectar ao serviço Ollama em '{self.config.ollama_url}' "
-                f"({err.reason}). Certifique-se de que o Ollama esteja em execução."
-            ) from err
-
-        except TimeoutError as err:
-            raise OllamaUnavailableError(
-                f"Tempo limite excedido ({self.config.timeout}s) ao aguardar resposta do Ollama "
-                f"para o modelo '{self.config.model_name}'."
-            ) from err
-
-        except json.JSONDecodeError as err:
-            raise OllamaUnavailableError(
-                f"Resposta recebida do Ollama não é um JSON válido: {err}"
-            ) from err
-
-        except Exception as err:
-            if isinstance(err, OllamaUnavailableError):
-                raise
-            raise OllamaUnavailableError(
-                f"Falha inesperada na comunicação com Ollama: {err}"
-            ) from err
+        """Call LLM transport (delegates to configured transport for execution)."""
+        return self.transport.generate(prompt, system_prompt=system_prompt, json_format=json_format)
 
     def _map_chunk(self, chunk: TranscriptChunk) -> dict[str, Any]:
-        """Map phase: analyze an individual chunk to extract timeline, glossary, and flashcards."""
+        """Map phase: analyze an individual chunk to extract timeline, glossary, and charts."""
         system_prompt = (
             "Você é um pedagogo e sintetizador técnico de alta precisão especializado.\n"
             "Analise o trecho transcrito delimitado e extraia:\n"
-            "1. chunk_summary: Resumo claro dos principais temas abordados neste trecho.\n"
-            "2. timeline: Tópicos relevantes com timestamp exato [HH:MM:SS], título e descrição.\n"
+            "1. chunk_summary: Resumo fiel dos fatos, números, relações e ressalvas do trecho.\n"
+            "2. timeline: Lista de marcos usando os timestamps fornecidos, inclusive em trechos "
+            "curtos de um só tema. Cada item usa exatamente timestamp, topic e summary.\n"
             "3. glossary: Termos técnicos ou equações com termo, definição e primeiro timestamp.\n"
-            "4. flashcards: Cards de estudo (pergunta e resposta conceitual) com timestamp.\n\n"
+            "4. charts: Gráficos de dados ou visualizações segundo especificação "
+            "AntV / GPT-Vis (comparações quantitativas, evolução temporal, distribuição percentual "
+            "ou mapa conceitual). Cada item deve conter: id, title, chart_type "
+            "('column'|'bar'|'pie'|'line'|'mindmap'), description, data (lista de objetos com "
+            "chaves/valores) e timestamp.\n\n"
             "Responda ESTRITAMENTE em formato JSON com as chaves: "
-            "'chunk_summary', 'timeline', 'glossary', 'flashcards'."
+            "'chunk_summary', 'timeline', 'glossary', 'charts'.\n"
+            'Estrutura: {"chunk_summary":"...","timeline":[{"timestamp":"00:00:00",'
+            '"topic":"...","summary":"..."}],"glossary":[{"term":"...",'
+            '"definition":"...","first_timestamp":"00:00:00"}],"charts":['
+            '{"id":"chart-01","title":"...","chart_type":"column","description":"...",'
+            '"data":[{"category":"A","value":10}],"timestamp":"00:00:00"}]}.\n'
+            "Troque os valores de exemplo por fatos e horários do trecho. Não invente eventos, "
+            "não omita ressalvas e não traduza nomes de chaves."
         )
 
         prompt = (
             f"--- BLOCO CRONOLÓGICO: {chunk.start_time} até {chunk.end_time} ---\n\n"
             f"{chunk.text}\n\n"
-            "Extraia o JSON solicitado contendo chunk_summary, timeline, glossary e flashcards."
+            "Extraia o JSON solicitado contendo chunk_summary, timeline, glossary e charts."
         )
 
         raw_response = self._call_ollama(prompt, system_prompt=system_prompt, json_format=True)
@@ -561,7 +667,7 @@ class TranscriptSummarizer:
                     }
                 ],
                 "glossary": [],
-                "flashcards": [],
+                "charts": [],
             }
 
     def _reduce_synthesis(
@@ -574,10 +680,17 @@ class TranscriptSummarizer:
         system_prompt = (
             "Você é um redator sênior e comunicador acadêmico.\n"
             "A partir dos resumos parciais dos blocos, produza a síntese global definitiva:\n"
-            "1. core_thesis: Frase única sintetizando a mensagem principal ou tese central.\n"
-            "2. paragraphs: De 2 a 4 parágrafos estruturados explicando o desenvolvimento.\n"
-            "3. spoken_summary: Roteiro falado dinâmico em português brasileiro (300-450 palavras)"
-            " ideal para áudio ou narração de podcast sintetizando o que foi transmitido.\n\n"
+            "1. core_thesis: Frase única sintetizando a mensagem principal ou tese central. "
+            "Preserve quem realiza cada ação e as relações causais; "
+            "não troque os papéis dos componentes.\n"
+            "2. paragraphs: Parágrafos concisos e distintos, sem repetir explicações. "
+            "Para fonte curta, um único parágrafo pode ser suficiente.\n"
+            "3. spoken_summary: Roteiro falado em português brasileiro com extensão proporcional "
+            "à fonte, sem mínimo de palavras nem preenchimento artificial.\n"
+            "O glossário é referência auxiliar: não acrescente ao final listas de definições "
+            "que repetem fatos já explicados nos parágrafos ou no roteiro falado.\n"
+            "Preserve números, relações causais e ressalvas de escopo. Não acrescente "
+            "afirmações ausentes da fonte, como eficácia comprovada ou equipamentos reais.\n\n"
             "Responda ESTRITAMENTE em formato JSON com as chaves: "
             "'core_thesis', 'paragraphs', 'spoken_summary'."
         )
@@ -608,6 +721,16 @@ class TranscriptSummarizer:
 
             if not paras:
                 paras = chunk_summaries if chunk_summaries else ["Conteúdo analisado com sucesso."]
+
+            # Remove only textually identical paragraphs; semantic overlap is a QA concern.
+            seen_paragraphs: set[str] = set()
+            unique_paras: list[str] = []
+            for paragraph in paras:
+                key = " ".join(paragraph.casefold().split())
+                if key not in seen_paragraphs:
+                    seen_paragraphs.add(key)
+                    unique_paras.append(paragraph)
+            paras = unique_paras
 
             spoken = str(
                 data.get("spoken_summary") or data.get("resumo_falado") or " ".join(paras)
@@ -689,6 +812,7 @@ class TranscriptSummarizer:
         chunk_summaries: list[str] = []
         raw_timeline_entries: list[dict[str, Any]] = []
         raw_glossary_entries: list[dict[str, Any]] = []
+        raw_chart_entries: list[dict[str, Any]] = []
         raw_flashcard_entries: list[dict[str, Any]] = []
 
         for i, chunk in enumerate(chunks, start=1):
@@ -721,6 +845,10 @@ class TranscriptSummarizer:
                 if isinstance(item, dict):
                     raw_glossary_entries.append(item)
 
+            for item in chunk_result.get("charts") or []:
+                if isinstance(item, dict):
+                    raw_chart_entries.append(item)
+
             for item in chunk_result.get("flashcards") or []:
                 if isinstance(item, dict):
                     raw_flashcard_entries.append(item)
@@ -730,7 +858,7 @@ class TranscriptSummarizer:
             {
                 "phase": "reduce",
                 "progress_percent": 85,
-                "message": "Consolidando tese central, glossário e flashcards com Ollama...",
+                "message": "Consolidando tese central, glossário e gráficos com Ollama...",
             }
         )
 
@@ -776,7 +904,35 @@ class TranscriptSummarizer:
                 )
         glossary_list = list(glossary_map.values())
 
-        # Normalize & deduplicate flashcards
+        # Normalize & deduplicate charts (AntV format)
+        chart_list: list[ChartVisualizationEntry] = []
+        seen_charts: set[str] = set()
+        for idx, item in enumerate(raw_chart_entries, start=1):
+            title = str(item.get("title") or item.get("titulo") or f"Gráfico {idx}").strip()
+            chart_type = str(item.get("chart_type") or item.get("type") or "column").strip().lower()
+            if chart_type not in {"column", "bar", "pie", "line", "mindmap"}:
+                chart_type = "column"
+            desc = str(item.get("description") or item.get("descricao") or "").strip()
+            raw_data = item.get("data") or []
+            data_list = list(raw_data) if isinstance(raw_data, list) else []
+            ts = str(item.get("timestamp") or "00:00:00").strip()
+            cid = str(item.get("id") or f"chart-{idx:02d}").strip()
+            norm_key = title.lower()
+            if norm_key in seen_charts:
+                continue
+            seen_charts.add(norm_key)
+            chart_list.append(
+                ChartVisualizationEntry(
+                    id=cid,
+                    title=title,
+                    chart_type=chart_type,
+                    description=desc,
+                    data=data_list,
+                    timestamp=ts,
+                )
+            )
+
+        # Normalize & deduplicate flashcards (if present from prior summaries or mocks)
         flashcard_list: list[FlashcardEntry] = []
         seen_questions: set[str] = set()
         for idx, item in enumerate(raw_flashcard_entries, start=1):
@@ -800,8 +956,7 @@ class TranscriptSummarizer:
 
         provenance = {
             "source_file": source_path.name,
-            "model_name": self.config.model_name,
-            "ollama_url": self.config.ollama_url,
+            **self.transport.provenance_metadata(),
             "generated_at": datetime.now(UTC).isoformat(),
             "chunk_count": len(chunks),
             "chunk_duration_minutes": self.config.chunk_duration_minutes,
@@ -815,8 +970,9 @@ class TranscriptSummarizer:
             executive=executive,
             timeline=timeline_list,
             glossary=glossary_list,
-            flashcards=flashcard_list,
             spoken_summary=spoken_summary,
+            charts=chart_list,
+            flashcards=flashcard_list,
         )
 
         # Step 6 & 7: Persisting sidecars
@@ -848,6 +1004,7 @@ class TranscriptSummarizer:
         """Render TranscriptSummary to a Markdown document with YAML frontmatter."""
         source_name = str(summary.provenance.get("source_file") or "transcricao")
         model = str(summary.provenance.get("model_name") or self.config.model_name)
+        provider = str(summary.provenance.get("provider") or "ollama")
         generated_at = str(summary.provenance.get("generated_at") or "")
         core_thesis_escaped = json.dumps(summary.executive.core_thesis, ensure_ascii=False)
 
@@ -855,6 +1012,7 @@ class TranscriptSummarizer:
             "---",
             f"schema_version: {json.dumps(summary.schema_version)}",
             f"source_file: {json.dumps(source_name, ensure_ascii=False)}",
+            f"provider: {json.dumps(provider)}",
             f"model: {json.dumps(model)}",
             f"generated_at: {json.dumps(generated_at)}",
             f"core_thesis: {core_thesis_escaped}",
@@ -911,8 +1069,28 @@ class TranscriptSummarizer:
         else:
             lines.extend(["_Nenhum termo técnico registrado._", ""])
 
-        lines.extend(["## Flashcards de Fixação", ""])
+        if summary.charts:
+            lines.extend(["## Visualizações e Gráficos Conceituais (AntV)", ""])
+            for _idx, chart in enumerate(summary.charts, start=1):
+                chart_spec = json.dumps(
+                    {"type": chart.chart_type, "data": chart.data},
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                lines.extend(
+                    [
+                        f"### {chart.title} (`{chart.timestamp}` - Tipo: `{chart.chart_type}`)",
+                        f"- **Descrição:** {chart.description}",
+                        "",
+                        "```vis-chart",
+                        chart_spec,
+                        "```",
+                        "",
+                    ]
+                )
+
         if summary.flashcards:
+            lines.extend(["## Flashcards de Fixação", ""])
             for idx, card in enumerate(summary.flashcards, start=1):
                 lines.extend(
                     [
@@ -922,8 +1100,6 @@ class TranscriptSummarizer:
                         "",
                     ]
                 )
-        else:
-            lines.extend(["_Nenhum flashcard gerado._", ""])
 
         return "\n".join(lines).strip() + "\n"
 
@@ -947,10 +1123,16 @@ def main(argv: list[str] | None = None) -> int:
         help="Diretório de saída (padrão: mesmo diretório do arquivo fonte)",
     )
     parser.add_argument(
+        "--provider",
+        choices=("ollama", "chatgpt"),
+        default="ollama",
+        help="Provedor de síntese LLM: 'ollama' (local) ou 'chatgpt' (plano na nuvem)",
+    )
+    parser.add_argument(
         "--model",
         "-m",
         default="qwen2.5:3b",
-        help="Nome do modelo local no Ollama (padrão: qwen2.5:3b)",
+        help="Nome do modelo no provedor (padrão Ollama: qwen2.5:3b, ChatGPT: gpt-6-luna)",
     )
     parser.add_argument(
         "--ollama-url",
@@ -967,18 +1149,38 @@ def main(argv: list[str] | None = None) -> int:
         "--timeout",
         type=int,
         default=600,
-        help="Tempo limite em segundos para respostas HTTP do Ollama (padrão: 600)",
+        help="Tempo limite em segundos para respostas HTTP do provedor (padrão: 600)",
     )
 
     args = parser.parse_args(argv)
 
-    config = SummaryConfig(
-        ollama_url=args.ollama_url,
-        model_name=args.model,
-        chunk_duration_minutes=args.chunk_minutes,
-        timeout=args.timeout,
-    )
-    summarizer = TranscriptSummarizer(config=config)
+    if args.provider == "chatgpt":
+        from .chatgpt_auth import ChatGPTAuthManager
+        from .chatgpt_client import ChatGPTTransport
+        from .config import AppConfig
+
+        model = args.model if args.model != "qwen2.5:3b" else "gpt-6-luna"
+        config = SummaryConfig(
+            model_name=model,
+            chunk_duration_minutes=args.chunk_minutes,
+            timeout=args.timeout,
+        )
+        app_config = AppConfig.from_env()
+        auth_mgr = ChatGPTAuthManager(app_config.paths.auth)
+        transport = ChatGPTTransport(
+            auth_manager=auth_mgr,
+            model_name=model,
+            timeout=float(args.timeout),
+        )
+        summarizer = TranscriptSummarizer(config=config, transport=transport)
+    else:
+        config = SummaryConfig(
+            ollama_url=args.ollama_url,
+            model_name=args.model,
+            chunk_duration_minutes=args.chunk_minutes,
+            timeout=args.timeout,
+        )
+        summarizer = TranscriptSummarizer(config=config)
 
     try:
         md_file = summarizer.summarize(args.source, output_dir=args.output_dir)
@@ -991,6 +1193,9 @@ def main(argv: list[str] | None = None) -> int:
 
     except OllamaUnavailableError as err:
         print(f"[ERRO OLLAMA] {err}", file=sys.stderr)
+        return 1
+    except ChatGPTError as err:
+        print(f"[ERRO CHATGPT] {err}", file=sys.stderr)
         return 1
     except FileNotFoundError as err:
         print(f"[ERRO ARQUIVO] {err}", file=sys.stderr)

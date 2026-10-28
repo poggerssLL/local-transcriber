@@ -82,6 +82,11 @@ local-transcriber worker run
 local-transcriber transcripts list
 local-transcriber transcripts show ID
 local-transcriber export ID --format srt
+local-transcriber auth chatgpt status
+local-transcriber auth chatgpt logout
+local-transcriber remote-session start
+local-transcriber remote-session status
+local-transcriber remote-session stop
 local-transcriber serve
 ```
 
@@ -285,6 +290,20 @@ operador informou testes posteriores de áudios em CUDA, sem métricas capturada
 entrega. Essas evidências não caracterizam cargas longas, modelos maiores ou precisão sem
 gabarito independente.
 
+## Recuperação da sessão remota
+
+A sessão privada está implementada localmente, com complemento de recuperação aguardando
+revisão independente. Se `remote-session stop` falhar ao consultar ou desligar o Serve,
+o comando retorna erro e conserva o estado. Após resolver a causa, repetir `stop` permite
+retomar a limpeza com nova verificação de posse. Não apagar o journal para contornar erros.
+
+Um crash com estado `prepared` incompleto ou arquivo corrompido exige reconciliação manual
+local antes de iniciar outra sessão. Configuração de terceiros ou desconhecida na porta
+Serve é recusada; não editar Serve por outro cliente durante a sessão. Os testes desta
+entrega são sintéticos, sem homologação em Tailscale/iPad real. Consulte o
+[complemento e limites de recuperação](docs/PHASE_08J_STAGE1_RECOVERY_COMPLEMENT_2026-10-25.md).
+A Etapa 2 exige revisão do gate e nova autorização explícita.
+
 ## Contexto para contribuidores
 
 - [AGENTS.md](AGENTS.md): regras obrigatórias para qualquer tarefa neste repositório.
@@ -316,25 +335,23 @@ gabarito independente.
   evidência ponta a ponta local, limites da amostra e iniciador supervisionado.
 - [Aceleração CUDA local 7B](docs/PHASE_07B_LOCAL_CUDA_ACCELERATION.md): descoberta local
   das DLLs, validação CUDA, proteção da fila durante exclusão e limitações restantes.
+- [Sessão Remota e Tailscale Serve](docs/PHASE_08J_STAGE1_REMOTE_SESSION_2026-10-25.md): ciclo de vida de sessão temporária e orquestração Tailscale Serve.
+- [Hardening da Sessão Remota](docs/PHASE_08J_STAGE1_HARDENING_2026-10-25.md): blindagem fail-closed 64-bit, inspeção estrita de serve, observabilidade e lock concorrente.
 
 Manutenção 8C: 142 testes Python, Ruff global e format --check aprovados. Testes
 da fila separam contagem de retries de expiração com relógio controlado.
 Versão/schema preservados; nenhuma inferência real nova.
 [Relatório](docs/PHASE_08C_STYLE_AND_HEARTBEAT_TESTS_2026-10-05.md).
 
-## Recuperação da sessão remota
 
-A sessão privada está implementada localmente, com complemento de recuperação aguardando
-revisão independente. Se `remote-session stop` falhar ao consultar ou desligar o Serve,
-o comando retorna erro e conserva o estado. Após resolver a causa, repetir `stop` permite
-retomar a limpeza com nova verificação de posse. Não apagar o journal para contornar erros.
+## Ferramentas do agente (2026-10-25)
 
-Um crash com estado `prepared` incompleto ou arquivo corrompido exige reconciliação manual
-local antes de iniciar outra sessão. Configuração de terceiros ou desconhecida na porta
-Serve é recusada; não editar Serve por outro cliente durante a sessão. Os testes desta
-entrega são sintéticos, sem homologação em Tailscale/iPad real. Consulte o
-[complemento e limites de recuperação](docs/PHASE_08J_STAGE1_RECOVERY_COMPLEMENT_2026-10-25.md).
-A Etapa 2 exige revisão do gate e nova autorização explícita.
+O ambiente do agente possui configura??o MCP local em `.codex/config.toml` para filesystem e GitHub, al?m de Impeccable em `.agents/skills/impeccable`. Os MCPs exigem Node.js/npx; GitHub tamb?m exige GitHub CLI autenticado. Reabra a sess?o para carregar as ferramentas e ajuste os caminhos da configura??o se mover o projeto. Consulte o [registro da configura??o](docs/PHASE_TOOLING_MCP_AND_SKILLS_2026-10-25.md).
+
+
+## Integra??o MCP Graphify (2026-10-25)
+
+O MCP Graphify local tamb?m est? configurado em .codex/config.toml e foi validado com graph_stats e query_graph. Reabra a sess?o para carregar o servidor. Ele consulta graphify-out/graph.json, que pode precisar de atualiza??o. Para opera??es no GitHub, o agente prioriza o MCP GitHub. Veja docs/PHASE_TOOLING_GRAPHIFY_MCP_2026-10-25.md.
 
 ## Gate da Etapa 1 remota — revisão do coordenador (2026-10-25)
 

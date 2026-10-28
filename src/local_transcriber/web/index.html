@@ -13,52 +13,105 @@
     <div class="app-shell">
       <aside class="sidebar" aria-label="Navegação principal">
         <div class="brand">
-          <span class="brand-mark" aria-hidden="true">LT</span>
-          <div>
+          <div class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+              <line x1="12" x2="12" y1="19" y2="22"/>
+            </svg>
+          </div>
+          <div class="brand-text">
             <strong>Local Transcriber</strong>
-            <span>Área de estudo local</span>
+            <span>Studio de Estudo &amp; Síntese</span>
           </div>
         </div>
+
         <nav class="primary-nav" aria-label="Seções">
           <a href="#painel" data-view="painel" aria-current="page">
-            <span aria-hidden="true">▦</span> Painel
+            <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="3" y="3" width="7" height="7" rx="1.5"/>
+              <rect x="14" y="3" width="7" height="7" rx="1.5"/>
+              <rect x="14" y="14" width="7" height="7" rx="1.5"/>
+              <rect x="3" y="14" width="7" height="7" rx="1.5"/>
+            </svg>
+            <span>Painel</span>
           </a>
           <a href="#materias" data-view="materias">
-            <span aria-hidden="true">▤</span> Matérias
+            <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/>
+              <path d="M6 6h10"/>
+              <path d="M6 10h10"/>
+            </svg>
+            <span>Matérias</span>
           </a>
           <a href="#biblioteca" data-view="biblioteca">
-            <span aria-hidden="true">▥</span> Biblioteca
+            <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect width="18" height="18" x="3" y="3" rx="2"/>
+              <path d="M7 3v18"/>
+              <path d="M3 7.5h4"/>
+              <path d="M3 12h18"/>
+            </svg>
+            <span>Biblioteca</span>
           </a>
           <a href="#fila" data-view="fila">
-            <span aria-hidden="true">◷</span> Fila
+            <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="10"/>
+              <polyline points="12 6 12 12 16 14"/>
+            </svg>
+            <span>Fila</span>
           </a>
           <a href="#leitura" data-view="leitura">
-            <span aria-hidden="true">¶</span> Leitura
+            <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+              <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+            </svg>
+            <span>Leitura</span>
           </a>
           <a href="#modelos" data-view="modelos">
-            <span aria-hidden="true">◫</span> Modelos
+            <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect width="16" height="16" x="4" y="4" rx="2"/>
+              <rect width="6" height="6" x="9" y="9" rx="1"/>
+              <path d="M9 1v3"/>
+              <path d="M15 1v3"/>
+              <path d="M9 20v3"/>
+              <path d="M15 20v3"/>
+              <path d="M20 9h3"/>
+              <path d="M20 14h3"/>
+              <path d="M1 9h3"/>
+              <path d="M1 14h3"/>
+            </svg>
+            <span>Modelos</span>
           </a>
         </nav>
+
         <div class="sidebar-footer">
-          <span id="sidebar-version">Versão —</span>
-          <span>Dados somente neste computador</span>
+          <div class="footer-privacy-badge">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect width="18" height="11" x="3" y="11" rx="2" ry="2"/>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+            <span>100% Local &amp; Privado</span>
+          </div>
+          <span id="sidebar-version" class="footer-version">Versão —</span>
         </div>
       </aside>
 
       <main id="main-content" tabindex="-1">
         <header class="topbar">
-          <div>
-            <p class="eyebrow" id="view-context">Visão geral</p>
+          <div class="topbar-title-block">
+            <span class="context-pill" id="view-context">Visão geral</span>
             <h1 id="view-title">Painel</h1>
           </div>
-          <div class="service-state" id="service-state" data-state="loading">
-            <span class="status-dot" aria-hidden="true"></span>
-            <span id="service-state-text">Verificando serviço…</span>
+          <div class="topbar-actions">
+            <div class="service-state" id="service-state" data-state="loading">
+              <span class="status-dot" aria-hidden="true"></span>
+              <span id="service-state-text">Verificando serviço…</span>
+            </div>
           </div>
         </header>
 
         <div id="connection-banner" class="notice notice-error" role="alert" hidden>
-          <div>
+          <div class="notice-body">
             <strong>Sem conexão com o serviço local</strong>
             <p>Confirme se o servidor continua aberto e tente novamente.</p>
           </div>
@@ -67,52 +120,102 @@
           </button>
         </div>
 
+        <!-- PAINEL -->
         <section id="view-painel" class="view" aria-labelledby="painel-heading">
           <h2 id="painel-heading" class="sr-only">Painel</h2>
           <div class="status-grid" aria-label="Estado do sistema">
             <article class="status-card">
-              <span>Serviço</span>
-              <strong id="dashboard-service">Carregando…</strong>
-              <small id="dashboard-schema">Schema —</small>
+              <div class="status-card-header">
+                <span class="status-card-label">Serviço Local</span>
+                <span class="status-card-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect width="20" height="8" x="2" y="2" rx="2" ry="2"/>
+                    <rect width="20" height="8" x="2" y="14" rx="2" ry="2"/>
+                    <line x1="6" x2="6.01" y1="6" y2="6"/>
+                    <line x1="6" x2="6.01" y1="18" y2="18"/>
+                  </svg>
+                </span>
+              </div>
+              <strong id="dashboard-service" class="status-card-value">Carregando…</strong>
+              <small id="dashboard-schema" class="status-card-sub">Schema —</small>
             </article>
+
             <article class="status-card">
-              <span>Worker</span>
-              <strong id="dashboard-worker">Carregando…</strong>
-              <small>Fila local sequencial</small>
+              <div class="status-card-header">
+                <span class="status-card-label">Worker de Fila</span>
+                <span class="status-card-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+                  </svg>
+                </span>
+              </div>
+              <strong id="dashboard-worker" class="status-card-value">Carregando…</strong>
+              <small class="status-card-sub">Processamento local sequencial</small>
             </article>
+
             <article class="status-card">
-              <span>Perfil automático</span>
-              <strong id="dashboard-profile">Carregando…</strong>
-              <small id="dashboard-runtime">Verificando runtime</small>
+              <div class="status-card-header">
+                <span class="status-card-label">Aceleração de Hardware</span>
+                <span class="status-card-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="4" y="4" width="16" height="16" rx="2"/>
+                    <rect x="9" y="9" width="6" height="6"/>
+                    <line x1="9" x2="9" y1="1" y2="4"/>
+                    <line x1="15" x2="15" y1="1" y2="4"/>
+                    <line x1="9" x2="9" y1="20" y2="23"/>
+                    <line x1="15" x2="15" y1="20" y2="23"/>
+                    <line x1="20" x2="23" y1="9" y2="9"/>
+                    <line x1="20" x2="23" y1="14" y2="14"/>
+                    <line x1="1" x2="4" y1="9" y2="9"/>
+                    <line x1="1" x2="4" y1="14" y2="14"/>
+                  </svg>
+                </span>
+              </div>
+              <strong id="dashboard-profile" class="status-card-value">Carregando…</strong>
+              <small id="dashboard-runtime" class="status-card-sub">Verificando runtime</small>
             </article>
+
             <article class="status-card">
-              <span>Modelos instalados</span>
-              <strong id="dashboard-models">Carregando…</strong>
-              <small>Download somente pela CLI</small>
+              <div class="status-card-header">
+                <span class="status-card-label">Modelos Whisper</span>
+                <span class="status-card-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                    <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+                    <line x1="12" x2="12" y1="22.08" y2="12"/>
+                  </svg>
+                </span>
+              </div>
+              <strong id="dashboard-models" class="status-card-value">Carregando…</strong>
+              <small class="status-card-sub">Download explícito via CLI</small>
             </article>
           </div>
+
           <div class="section-heading">
-            <div>
-              <p class="eyebrow">Atividade</p>
-              <h2>Jobs recentes</h2>
+            <div class="section-title-group">
+              <h2>Atividade Recente</h2>
+              <span class="section-subtitle">Últimas execuções de transcrição</span>
             </div>
             <a class="button button-quiet" href="#fila" data-view-link="fila">Ver toda a fila</a>
           </div>
-          <div id="recent-jobs" class="data-panel" aria-busy="true"></div>
+          <div id="recent-jobs" class="data-panel jobs-panel" aria-busy="true"></div>
         </section>
 
+        <!-- MATÉRIAS -->
         <section id="view-materias" class="view" aria-labelledby="materias-heading" hidden>
           <div class="page-intro">
             <div>
-              <h2 id="materias-heading" class="sr-only">Matérias</h2>
-              <p>Use matérias para agrupar e filtrar suas aulas.</p>
+              <h2 id="materias-heading">Organização de Disciplinas</h2>
+              <p>Cadastre matérias para agrupar, filtrar e contextualizar as gravações das suas aulas.</p>
             </div>
           </div>
           <div class="split-layout split-layout-narrow">
             <form id="subject-form" class="form-panel" novalidate>
-              <h3>Nova matéria</h3>
+              <div class="panel-header-compact">
+                <h3>Nova Matéria</h3>
+              </div>
               <div class="field">
-                <label for="subject-name">Nome</label>
+                <label for="subject-name">Nome da matéria</label>
                 <input id="subject-name" name="name" maxlength="200" required
                        autocomplete="off" placeholder="Ex.: Redes de Computadores">
               </div>
@@ -120,7 +223,7 @@
             </form>
             <div class="data-panel">
               <div class="panel-title-row">
-                <h3>Matérias cadastradas</h3>
+                <h3>Matérias Cadastradas</h3>
                 <span id="subject-count" class="count-badge">0</span>
               </div>
               <ul id="subject-list" class="plain-list" aria-live="polite"></ul>
@@ -128,41 +231,53 @@
           </div>
         </section>
 
+        <!-- BIBLIOTECA -->
         <section id="view-biblioteca" class="view" aria-labelledby="biblioteca-heading" hidden>
           <div class="page-intro">
             <div>
-              <h2 id="biblioteca-heading" class="sr-only">Biblioteca</h2>
-              <p>Importe, encontre e abra suas gravações.</p>
+              <h2 id="biblioteca-heading">Acervo de Gravações</h2>
+              <p>Importe arquivos de áudio ou vídeo, gerencie o histórico e acesse transcrições e sínteses pedagógicas.</p>
             </div>
           </div>
           <div class="split-layout">
-            <form id="upload-form" class="form-panel" enctype="multipart/form-data" novalidate>
+            <form id="upload-form" class="form-panel upload-panel" enctype="multipart/form-data" novalidate>
               <div class="panel-title-row">
-                <h3>Importar gravação</h3>
+                <h3>Importar Gravação</h3>
                 <span class="local-badge">Local</span>
               </div>
-              <div class="field">
-                <label for="upload-file">Áudio ou vídeo</label>
+
+              <div class="field field-file-upload">
+                <label for="upload-file">Arquivo de Mídia</label>
                 <input id="upload-file" name="file" type="file" required
                        accept=".wav,.mp3,.flac,.m4a,.ogg,.mp4,.mkv,.webm,audio/*,video/*">
-                <small id="upload-limit">WAV, MP3, FLAC, M4A, OGG, MP4, MKV ou WebM.</small>
+                <small id="upload-limit">Formatos aceitos: WAV, MP3, FLAC, M4A, OGG, MP4, MKV ou WebM.</small>
               </div>
+
               <div class="field">
-                <label for="upload-title">Título da aula</label>
+                <label for="upload-title">Título da Aula</label>
                 <input id="upload-title" name="title" maxlength="500" required
-                       autocomplete="off">
+                       autocomplete="off" placeholder="Ex.: Aula 04 - Protocolos de Roteamento">
               </div>
+
               <div class="field">
-                <label for="upload-subject">Matéria</label>
+                <label for="upload-subject">Disciplina / Matéria</label>
                 <select id="upload-subject" name="subject_id" required></select>
               </div>
+
               <div class="field">
-                <label for="upload-date">Data da aula</label>
+                <label for="upload-date">Data da Aula</label>
                 <input id="upload-date" name="lesson_date" type="date" required>
               </div>
+
               <button id="upload-submit" class="button button-primary" type="submit">
-                Importar arquivo
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="17 8 12 3 7 8"/>
+                  <line x1="12" x2="12" y1="3" y2="15"/>
+                </svg>
+                Importar Arquivo
               </button>
+
               <progress id="upload-progress" class="task-progress" hidden></progress>
               <p id="upload-status" class="form-status" role="status"></p>
             </form>
@@ -172,16 +287,24 @@
                 <div class="field field-search">
                   <label class="sr-only" for="search-query">Pesquisar biblioteca</label>
                   <input id="search-query" type="search" name="q"
-                         placeholder="Pesquisar título, matéria ou transcrição">
+                         placeholder="Pesquisar por título, matéria ou trecho da transcrição…">
                 </div>
                 <div class="field field-filter">
                   <label class="sr-only" for="subject-filter">Filtrar por matéria</label>
                   <select id="subject-filter" name="subject"></select>
                 </div>
-                <button class="button button-secondary" type="submit">Pesquisar</button>
+                <button class="button button-secondary" type="submit">
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <circle cx="11" cy="11" r="8"/>
+                    <line x1="21" x2="16.65" y1="21" y2="16.65"/>
+                  </svg>
+                  Pesquisar
+                </button>
               </form>
+
               <p id="library-summary" class="result-summary" aria-live="polite"></p>
-              <div class="table-wrap data-panel" id="recordings-panel" aria-busy="true">
+
+              <div class="table-wrap data-panel table-panel-bounded" id="recordings-panel" aria-busy="true">
                 <table>
                   <caption class="sr-only">Gravações da biblioteca</caption>
                   <thead>
@@ -204,76 +327,146 @@
           </div>
         </section>
 
+        <!-- FILA -->
         <section id="view-fila" class="view" aria-labelledby="fila-heading" hidden>
           <div class="page-intro">
             <div>
-              <h2 id="fila-heading" class="sr-only">Fila de transcrição</h2>
-              <p>O progresso persiste mesmo se esta página for recarregada.</p>
+              <h2 id="fila-heading">Fila de Processamento</h2>
+              <p>Acompanhe em tempo real a transcrição e geração de resumos pelo worker local.</p>
             </div>
             <button id="refresh-jobs" class="button button-secondary" type="button">
-              Atualizar
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="23 4 23 10 17 10"/>
+                <polyline points="1 20 1 14 7 14"/>
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+              </svg>
+              Atualizar Fila
             </button>
           </div>
+
           <div id="sse-state" class="connection-state" role="status" aria-live="polite">
             Aguardando jobs ativos.
           </div>
+
           <div id="job-list" class="job-list" aria-busy="true"></div>
         </section>
 
+        <!-- LEITURA -->
         <section id="view-leitura" class="view" aria-labelledby="leitura-heading" hidden>
           <div class="page-intro">
             <div>
-              <h2 id="leitura-heading" class="sr-only">Leitura</h2>
-              <p id="reader-subtitle">Abra uma transcrição concluída pela biblioteca ou pela fila.</p>
+              <h2 id="leitura-heading">Studio de Leitura &amp; Síntese</h2>
+              <p id="reader-subtitle">Abra uma gravação concluída pela biblioteca ou pela fila para estudar.</p>
             </div>
           </div>
+
           <div id="reader-empty" class="empty-state data-panel">
+            <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="empty-state-svg" aria-hidden="true">
+              <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+              <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+            </svg>
             <strong>Nenhuma transcrição selecionada</strong>
-            <p>Escolha “Ler” em uma gravação concluída.</p>
+            <p>Escolha “Ler” em uma gravação concluída para abrir o texto integral, segmentos e síntese pedagógica com IA.</p>
             <a class="button button-secondary" href="#biblioteca" data-view-link="biblioteca">
-              Abrir biblioteca
+              Abrir Biblioteca
             </a>
           </div>
+
           <div id="reader-content" hidden>
+            <!-- Barra Superior do Leitor -->
             <div class="reader-toolbar data-panel">
-              <div>
-                <strong id="reader-title">—</strong>
-                <span id="reader-metadata">—</span>
+              <div class="reader-header-info">
+                <h3 id="reader-title">—</h3>
+                <span id="reader-metadata" class="reader-meta-pill">—</span>
               </div>
               <div id="export-actions" class="export-actions" aria-label="Exportações"></div>
             </div>
-            <video id="video-player" class="media-player video-player" controls preload="metadata" hidden>
-              Seu navegador não consegue reproduzir esta mídia.
-            </video>
-            <audio id="audio-player" class="media-player" controls preload="metadata" hidden>
-              Seu navegador não consegue reproduzir esta mídia.
-            </audio>
+
+            <!-- Deck de Mídia -->
+            <div class="media-deck data-panel">
+              <video id="video-player" class="media-player video-player" controls preload="metadata" hidden>
+                Seu navegador não consegue reproduzir esta mídia.
+              </video>
+              <audio id="audio-player" class="media-player" controls preload="metadata" hidden>
+                Seu navegador não consegue reproduzir esta mídia.
+              </audio>
+            </div>
+
+            <!-- Métricas da Transcrição -->
             <div id="transcript-metrics" class="metrics-strip"></div>
+
+            <!-- Navegação por Abas do Studio (Resolve sobreposição de containers) -->
+            <nav id="reader-tabs" class="reader-tabs" aria-label="Modo de visualização do estudo">
+              <button type="button" class="reader-tab-btn is-active" data-reader-tab="transcription">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                  <polyline points="14 2 14 8 20 8"/>
+                  <line x1="16" x2="8" y1="13" y2="13"/>
+                  <line x1="16" x2="8" y1="17" y2="17"/>
+                  <polyline points="10 9 9 9 8 9"/>
+                </svg>
+                Transcrição &amp; Segmentos
+              </button>
+              <button type="button" class="reader-tab-btn" data-reader-tab="summary">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M12 2v4"/>
+                  <path d="m4.93 4.93 2.83 2.83"/>
+                  <path d="M2 12h4"/>
+                  <path d="m4.93 19.07 2.83-2.83"/>
+                  <path d="M12 22v-4"/>
+                  <path d="m19.07 19.07-2.83-2.83"/>
+                  <path d="M22 12h-4"/>
+                  <path d="m19.07 4.93-2.83 2.83"/>
+                </svg>
+                Síntese com IA
+              </button>
+              <button type="button" class="reader-tab-btn" data-reader-tab="charts">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="18" x2="18" y1="20" y2="10"/>
+                  <line x1="12" x2="12" y1="20" y2="4"/>
+                  <line x1="6" x2="6" y1="20" y2="14"/>
+                </svg>
+                Visualizações AntV
+              </button>
+              <button type="button" class="reader-tab-btn" data-reader-tab="all">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <rect x="3" y="3" width="18" height="18" rx="2"/>
+                  <line x1="3" x2="21" y1="9" y2="9"/>
+                  <line x1="9" x2="9" y1="21" y2="9"/>
+                </svg>
+                Visão Completa
+              </button>
+            </nav>
+
+            <!-- PAINEL DE RESUMO ESTRUTURADO COM IA -->
             <section id="summary-section" class="data-panel summary-panel" aria-labelledby="summary-heading">
               <header class="summary-panel-header">
                 <div class="summary-title-group">
-                  <p class="eyebrow">Síntese com IA Local</p>
-                  <h3 id="summary-heading">Resumo Estruturado &amp; Estudo</h3>
+                  <h3 id="summary-heading">Síntese Estruturada &amp; Estudo com IA</h3>
+                  <p class="summary-lead">Tese central, resumo conceitual, roteiro falado, glossário e gráficos analíticos.</p>
                 </div>
+
                 <div class="summary-actions">
-                  <!-- Painel Expandido de Status e Progresso da Síntese Ollama -->
+                  <!-- Indicador de Status & Barra de Progresso da Síntese -->
                   <div id="summary-status-indicator" class="summary-status-panel" role="status" aria-live="polite" hidden>
                     <div class="summary-status-main-row">
                       <div class="summary-status-info">
                         <span class="summary-spinner" aria-hidden="true"></span>
-                        <span id="summary-status-text" class="summary-status-text">Iniciando síntese via Ollama…</span>
+                        <span id="summary-status-text" class="summary-status-text">Iniciando síntese…</span>
                       </div>
                       <div class="summary-status-metrics">
                         <span id="summary-progress-percent" class="summary-progress-percent">0%</span>
                         <span class="summary-metrics-sep" aria-hidden="true">·</span>
                         <span class="summary-timer-group">
-                          <span class="summary-timer-icon" aria-hidden="true">⏱️</span>
+                          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="summary-timer-svg" aria-hidden="true">
+                            <circle cx="12" cy="12" r="10"/>
+                            <polyline points="12 6 12 12 16 14"/>
+                          </svg>
                           <span id="summary-progress-timer" class="summary-progress-timer" title="Tempo decorrido">00:00</span>
                         </span>
                       </div>
                     </div>
 
-                    <!-- Barra de Progresso com Preenchimento Suave -->
                     <div class="summary-progress-track">
                       <div id="summary-progress-bar"
                            class="summary-progress-bar"
@@ -287,29 +480,102 @@
                     </div>
                   </div>
 
-                  <button id="btn-generate-summary" class="button button-secondary" type="button">
-                    <span class="button-icon" aria-hidden="true">⚡</span>
+                  <div class="summary-provider-controls">
+                    <label for="summary-provider-select" class="visually-hidden">Provedor de Resumo</label>
+                    <select id="summary-provider-select" class="select select-compact">
+                      <option value="ollama" selected>Ollama (Local padrão)</option>
+                      <option value="chatgpt">ChatGPT (Nuvem / Plano)</option>
+                      <option value="antigravity">Antigravity (Gemini / Google AI Pro)</option>
+                    </select>
+
+                    <div id="chatgpt-auth-bar" class="chatgpt-auth-bar" hidden>
+                      <span id="chatgpt-auth-status" class="badge">Não conectado</span>
+                      <button id="btn-chatgpt-connect" class="button button-quiet button-small" type="button">Conectar ChatGPT</button>
+                      <button id="btn-chatgpt-disconnect" class="button button-quiet button-small" type="button" hidden>Desconectar</button>
+                    </div>
+
+                    <div id="antigravity-auth-bar" class="antigravity-auth-bar" hidden>
+                      <span id="antigravity-auth-status" class="badge">Google AI Pro (Gemini 3.8 Flash)</span>
+                    </div>
+                  </div>
+
+                  <button id="btn-generate-summary" class="button button-primary" type="button">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="button-svg" aria-hidden="true">
+                      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                    </svg>
                     <span id="btn-generate-summary-text">Gerar Resumo com Ollama</span>
                   </button>
+
                   <div id="summary-download-group" class="summary-download-group" hidden>
-                    <a id="btn-download-summary-md" class="button button-quiet" href="#" download="resumo.md" title="Baixar resumo estruturado em Markdown">
-                      <span aria-hidden="true">↓</span> Baixar Resumo (.md)
+                    <a id="btn-download-summary-md" class="button button-secondary" href="#" download="resumo.md" title="Baixar resumo estruturado em Markdown">
+                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="7 10 12 15 17 10"/>
+                        <line x1="12" x2="12" y1="15" y2="3"/>
+                      </svg>
+                      Baixar Resumo (.md)
                     </a>
-                    <a id="btn-download-summary-json" class="button button-quiet" href="#" download="resumo.json" title="Baixar sidecar estruturado em JSON">
-                      <span aria-hidden="true">↓</span> Baixar Sidecar (.json)
+                    <a id="btn-download-summary-json" class="button button-secondary" href="#" download="resumo.json" title="Baixar sidecar estruturado em JSON">
+                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="7 10 12 15 17 10"/>
+                        <line x1="12" x2="12" y1="15" y2="3"/>
+                      </svg>
+                      Baixar Sidecar (.json)
                     </a>
                   </div>
                 </div>
               </header>
 
+              <!-- Aviso ChatGPT -->
+              <div id="chatgpt-consent-notice" class="consent-notice" hidden>
+                <div class="consent-icon-box" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>
+                    <line x1="12" x2="12" y1="9" y2="13"/>
+                    <line x1="12" x2="12.01" y1="17" y2="17"/>
+                  </svg>
+                </div>
+                <p class="consent-text">
+                  <strong>Aviso de Envio:</strong> Ao utilizar o ChatGPT, o texto da transcrição será transmitido para a nuvem da OpenAI sob o plano da sua conta conectada. Os arquivos de áudio originais e o banco de dados permanecem exclusivamente locais.
+                </p>
+              </div>
+
+              <!-- Aviso Antigravity -->
+              <div id="antigravity-consent-notice" class="consent-notice" hidden>
+                <div class="consent-icon-box" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"/>
+                    <line x1="12" x2="12" y1="16" y2="12"/>
+                    <line x1="12" x2="12.01" y1="8" y2="8"/>
+                  </svg>
+                </div>
+                <p class="consent-text">
+                  <strong>Antigravity Local:</strong> A transcrição será processada pelo Gemini via CLI Antigravity autenticado nesta máquina sob a assinatura Google AI Pro. Os arquivos de mídia e banco de dados permanecem locais.
+                </p>
+              </div>
+
+              <!-- Estado Vazio do Resumo -->
               <div id="summary-empty-state" class="summary-empty">
-                <div class="empty-state-icon" aria-hidden="true">🧠</div>
+                <div class="empty-state-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 2v4"/>
+                    <path d="m4.93 4.93 2.83 2.83"/>
+                    <path d="M2 12h4"/>
+                    <path d="m4.93 19.07 2.83-2.83"/>
+                    <path d="M12 22v-4"/>
+                    <path d="m19.07 19.07-2.83-2.83"/>
+                    <path d="M22 12h-4"/>
+                    <path d="m19.07 4.93-2.83 2.83"/>
+                  </svg>
+                </div>
                 <div class="empty-state-copy">
                   <strong>Nenhum resumo gerado para esta gravação</strong>
-                  <p>Gere uma síntese pedagógica com tese central, roteiro falado, glossário e flashcards interativos usando o Ollama local.</p>
+                  <p>Clique em “Gerar Resumo” para extrair a tese central da aula, resumo executivo, roteiro didático, glossário e gráficos conceituais AntV.</p>
                 </div>
               </div>
 
+              <!-- Conteúdo Renderizado do Resumo -->
               <div id="summary-content" class="summary-content" hidden>
                 <article class="thesis-card" aria-labelledby="thesis-title">
                   <div class="thesis-badge-row">
@@ -320,19 +586,34 @@
                 </article>
 
                 <section class="summary-subpanel" aria-labelledby="executive-summary-title">
-                  <h4 id="executive-summary-title" class="subpanel-title">
-                    <span class="subpanel-icon" aria-hidden="true">📋</span> Resumo Executivo
-                  </h4>
+                  <div class="subpanel-header-row">
+                    <h4 id="executive-summary-title" class="subpanel-title">
+                      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="subpanel-svg" aria-hidden="true">
+                        <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+                        <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
+                      </svg>
+                      Resumo Executivo
+                    </h4>
+                  </div>
                   <div id="summary-executive-paragraphs" class="executive-paragraphs"></div>
                 </section>
 
                 <section class="summary-subpanel spoken-script-panel" aria-labelledby="spoken-script-title">
                   <div class="subpanel-header-row">
                     <h4 id="spoken-script-title" class="subpanel-title">
-                      <span class="subpanel-icon" aria-hidden="true">🎙️</span> Roteiro Falado (Podcast)
+                      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="subpanel-svg" aria-hidden="true">
+                        <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+                        <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                        <line x1="12" x2="12" y1="19" y2="22"/>
+                      </svg>
+                      Roteiro Falado (Podcast Didático)
                     </h4>
-                    <button id="btn-copy-spoken" class="button button-quiet button-sm" type="button" title="Copiar roteiro falado">
-                      <span aria-hidden="true">📄</span> Copiar Roteiro
+                    <button id="btn-copy-spoken" class="button button-secondary button-sm" type="button" title="Copiar roteiro falado">
+                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <rect width="14" height="14" x="8" y="8" rx="2" ry="2"/>
+                        <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>
+                      </svg>
+                      Copiar Roteiro
                     </button>
                   </div>
                   <div id="summary-spoken-text" class="spoken-script-body"></div>
@@ -341,7 +622,11 @@
                 <section class="summary-subpanel" aria-labelledby="glossary-title">
                   <div class="summary-header-row subpanel-header-row">
                     <h4 id="glossary-title" class="subpanel-title">
-                      <span class="subpanel-icon" aria-hidden="true">📖</span> Glossário Técnico
+                      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="subpanel-svg" aria-hidden="true">
+                        <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/>
+                        <polyline points="10 6 10 12 13 9 16 12 16 6"/>
+                      </svg>
+                      Glossário Técnico
                     </h4>
                     <span id="glossary-count" class="count-badge">0 termos</span>
                   </div>
@@ -350,7 +635,7 @@
                       <caption class="sr-only">Termos e conceitos técnicos identificados na aula</caption>
                       <thead>
                         <tr>
-                          <th scope="col" class="col-timestamp">Timestamp</th>
+                          <th scope="col" class="col-timestamp">Momento</th>
                           <th scope="col" class="col-term">Termo / Conceito</th>
                           <th scope="col" class="col-definition">Definição Pedagógica</th>
                         </tr>
@@ -360,41 +645,69 @@
                   </div>
                 </section>
 
-                <section class="summary-subpanel" aria-labelledby="flashcards-title">
+                <section class="summary-subpanel" aria-labelledby="charts-title">
                   <div class="summary-header-row subpanel-header-row">
-                    <h4 id="flashcards-title" class="subpanel-title">
-                      <span class="subpanel-icon" aria-hidden="true">🗂️</span> Flashcards de Fixação
+                    <h4 id="charts-title" class="subpanel-title">
+                      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="subpanel-svg" aria-hidden="true">
+                        <line x1="18" x2="18" y1="20" y2="10"/>
+                        <line x1="12" x2="12" y1="20" y2="4"/>
+                        <line x1="6" x2="6" y1="20" y2="14"/>
+                      </svg>
+                      Visualizações &amp; Gráficos Analíticos (AntV)
                     </h4>
-                    <span id="flashcards-count" class="count-badge">0 cards</span>
+                    <span id="charts-count" class="count-badge">0 gráficos</span>
                   </div>
-                  <p class="flashcards-hint">
-                    Teste sua retenção ativa. Clique no botão de cada card para revelar a resposta explicativa.
+                  <p class="charts-hint">
+                    Gráficos conceituais, métricas e distribuições extraídos da transcrição no formato AntV / GPT-Vis.
                   </p>
-                  <div id="summary-flashcards-grid" class="flashcards-grid" role="list"></div>
+                  <div id="summary-charts-grid" class="charts-grid" role="list"></div>
                 </section>
               </div>
             </section>
-            <div class="reader-layout">
-              <section class="data-panel transcript-text" aria-labelledby="texto-integral-heading">
-                <h3 id="texto-integral-heading">Texto integral</h3>
-                <p id="transcript-full-text"></p>
+
+            <!-- LAYOUT DUAL: TEXTO INTEGRAL & SEGMENTOS (Containers Sincronizados de Altura Fixa) -->
+            <div class="reader-layout" id="reader-layout">
+              <section class="data-panel transcript-text-panel" aria-labelledby="texto-integral-heading">
+                <div class="panel-title-row">
+                  <div class="panel-title-group">
+                    <h3 id="texto-integral-heading">Texto Integral</h3>
+                    <span class="panel-subtitle">Transcrição contínua da aula</span>
+                  </div>
+                  <button id="btn-copy-full-text" class="button button-quiet button-sm" type="button" title="Copiar texto integral">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <rect width="14" height="14" x="8" y="8" rx="2" ry="2"/>
+                      <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>
+                    </svg>
+                    Copiar
+                  </button>
+                </div>
+                <div class="transcript-scroll-wrap">
+                  <p id="transcript-full-text"></p>
+                </div>
               </section>
+
               <section class="data-panel segments-panel" aria-labelledby="segmentos-heading">
                 <div class="panel-title-row">
-                  <h3 id="segmentos-heading">Segmentos</h3>
+                  <div class="panel-title-group">
+                    <h3 id="segmentos-heading">Segmentos</h3>
+                    <span class="panel-subtitle">Navegação sincronizada com o player</span>
+                  </div>
                   <span id="segment-count" class="count-badge">0</span>
                 </div>
-                <ol id="segment-list" class="segment-list"></ol>
+                <div class="segments-scroll-wrap">
+                  <ol id="segment-list" class="segment-list"></ol>
+                </div>
               </section>
             </div>
           </div>
         </section>
 
+        <!-- MODELOS -->
         <section id="view-modelos" class="view" aria-labelledby="modelos-heading" hidden>
           <div class="page-intro">
             <div>
-              <h2 id="modelos-heading" class="sr-only">Modelos</h2>
-              <p>Downloads são sempre iniciados explicitamente pela CLI.</p>
+              <h2 id="modelos-heading">Catálogo de Modelos Locais</h2>
+              <p>Modelos Whisper instalados e disponíveis para execução offline sem envio de áudio para a nuvem.</p>
             </div>
           </div>
           <div id="model-list" class="model-list" aria-busy="true"></div>
@@ -402,36 +715,41 @@
       </main>
     </div>
 
+    <!-- DIALOG: NOVA TRANSCRIÇÃO -->
     <dialog id="transcription-dialog" aria-labelledby="transcription-dialog-title">
       <form id="transcription-form" method="dialog">
         <div class="dialog-heading">
           <div>
-            <p class="eyebrow">Configuração</p>
-            <h2 id="transcription-dialog-title">Nova transcrição</h2>
+            <h2 id="transcription-dialog-title">Nova Transcrição</h2>
+            <p id="transcription-recording-title" class="dialog-context"></p>
           </div>
           <button class="icon-button" type="button" data-close-dialog="transcription-dialog"
-                  aria-label="Fechar">×</button>
+                  aria-label="Fechar">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="18" x2="6" y1="6" y2="18"/>
+              <line x1="6" x2="18" y1="6" y2="18"/>
+            </svg>
+          </button>
         </div>
-        <p id="transcription-recording-title" class="dialog-context"></p>
         <input id="transcription-recording-id" type="hidden">
         <div class="form-grid">
           <div class="field">
-            <label for="transcription-model">Modelo</label>
+            <label for="transcription-model">Modelo Whisper</label>
             <select id="transcription-model" required></select>
           </div>
           <div class="field">
-            <label for="transcription-language">Idioma</label>
+            <label for="transcription-language">Idioma da Aula</label>
             <select id="transcription-language">
               <option value="">Detectar automaticamente</option>
               <option value="pt">Português</option>
             </select>
           </div>
           <div class="field">
-            <label for="transcription-profile">Perfil</label>
+            <label for="transcription-profile">Perfil de Execução</label>
             <select id="transcription-profile">
-              <option value="auto">Automático</option>
+              <option value="auto">Automático (Recomendado)</option>
               <option value="cpu">CPU</option>
-              <option value="cuda">CUDA</option>
+              <option value="cuda">CUDA (NVIDIA GPU)</option>
             </select>
           </div>
           <div class="field">
@@ -442,11 +760,11 @@
         <div class="check-grid">
           <label class="check-field">
             <input id="transcription-vad" type="checkbox" checked>
-            <span><strong>Filtro VAD</strong><small>Ignora trechos sem fala.</small></span>
+            <span><strong>Filtro VAD</strong><small>Ignora trechos de silêncio e ruído de fundo.</small></span>
           </label>
           <label class="check-field">
             <input id="transcription-timestamps" type="checkbox" checked>
-            <span><strong>Timestamps por palavra</strong><small>Permite navegação detalhada.</small></span>
+            <span><strong>Timestamps por palavra</strong><small>Permite navegação precisa por áudio.</small></span>
           </label>
         </div>
         <p id="transcription-model-warning" class="notice notice-warning" hidden></p>
@@ -454,41 +772,41 @@
           <button class="button button-quiet" type="button"
                   data-close-dialog="transcription-dialog">Cancelar</button>
           <button id="review-transcription" class="button button-primary" type="submit">
-            Revisar e enfileirar
+            Revisar e Enfileirar
           </button>
         </div>
       </form>
     </dialog>
 
+    <!-- DIALOG: CONFIRMAÇÃO DE ENFILEIRAMENTO -->
     <dialog id="confirm-dialog" aria-labelledby="confirm-dialog-title">
       <div class="dialog-heading">
         <div>
-          <p class="eyebrow">Confirmação</p>
-          <h2 id="confirm-dialog-title">Enfileirar transcrição?</h2>
+          <h2 id="confirm-dialog-title">Confirmar Enfileiramento</h2>
         </div>
       </div>
       <dl id="transcription-summary" class="summary-list"></dl>
-      <p>O processamento será feito pelo worker local e continuará se esta página for fechada.</p>
+      <p class="dialog-help">O processamento será realizado em segundo plano pelo worker local e continuará normalmente mesmo se esta aba for fechada.</p>
       <div class="dialog-actions">
         <button id="cancel-enqueue" class="button button-quiet" type="button">Voltar</button>
         <button id="confirm-enqueue" class="button button-primary" type="button">
-          Confirmar e enfileirar
+          Confirmar e Enfileirar
         </button>
       </div>
     </dialog>
 
+    <!-- DIALOG: EXCLUIR GRAVAÇÃO -->
     <dialog id="delete-dialog" aria-labelledby="delete-dialog-title">
       <div class="dialog-heading">
         <div>
-          <p class="eyebrow">Excluir gravação</p>
-          <h2 id="delete-dialog-title">Confirmar exclusão</h2>
+          <h2 id="delete-dialog-title">Excluir Gravação</h2>
         </div>
       </div>
       <p id="delete-message"></p>
-      <p class="destructive-note">A mídia, os jobs e as transcrições associados serão removidos.</p>
+      <p class="destructive-note">Atenção: O arquivo de mídia, todos os jobs associados e as transcrições salvas serão permanentemente removidos.</p>
       <div class="dialog-actions">
         <button id="cancel-delete" class="button button-quiet" type="button">Cancelar</button>
-        <button id="confirm-delete" class="button button-danger" type="button">Excluir</button>
+        <button id="confirm-delete" class="button button-danger" type="button">Excluir Permanentemente</button>
       </div>
     </dialog>
 

@@ -1,0 +1,17 @@
+.git/
+.venv/
+graphify-out/
+.test-tmp*/
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+output/
+tmp/
+runtime/
+data/
+uploads/
+models/
+tests/fixtures/
+*.egg-info/
+build/
+dist/
