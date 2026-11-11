@@ -921,7 +921,7 @@ function renderExports(transcriptId, artifacts) {
         className: "button button-secondary",
         text: exportLabels[format],
         href: `/api/exports/${encodeURIComponent(artifact.id)}`,
-        attributes: { download: `transcricao.${format}` },
+        attributes: { download: "" },
       }));
     } else {
       const create = element("button", {
@@ -955,7 +955,7 @@ async function createExport(transcriptId, format, button) {
     }
     const download = element("a", {
       href: `/api/exports/${encodeURIComponent(artifact.id)}`,
-      attributes: { download: `transcricao.${artifact.kind}` },
+      attributes: { download: "" },
     });
     document.body.append(download);
     download.click();
@@ -1651,11 +1651,11 @@ function renderSummary(summary, transcriptId) {
     const btnJson = byId("btn-download-summary-json");
     if (btnMd) {
       btnMd.href = api.summaryDownloadUrl(transcriptId, "md");
-      btnMd.download = `resumo_${transcriptId}.md`;
+      btnMd.download = "";
     }
     if (btnJson) {
       btnJson.href = api.summaryDownloadUrl(transcriptId, "json");
-      btnJson.download = `resumo_${transcriptId}.json`;
+      btnJson.download = "";
     }
   }
 }

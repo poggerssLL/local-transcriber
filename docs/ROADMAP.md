@@ -19,6 +19,9 @@
 
 ## Próximas Etapas
 
+- **Downloads e launchers (2026-11-11)**: nomes de arquivos derivados do título,
+  incluindo resumos; launchers local/remoto incluídos no repositório.
+
 - **Distribuição Windows simplificada (2026-11-11)**: implementados build do Setup
   com Python próprio, ZIP portátil, primeiro uso na aba Modelos e download explícito
   pela UI local. Homologação em máquina limpa e publicação dos artefatos pendentes.

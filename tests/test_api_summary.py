@@ -392,7 +392,7 @@ def test_download_summary_markdown_default(client: TestClient) -> None:
     assert response.headers["content-type"].startswith("text/markdown")
     disposition = response.headers.get("content-disposition", "")
     assert "attachment" in disposition
-    assert f"transcript_{transcript.id}.resumo.md" in disposition
+    assert "Aula%2001%20-%20Modelagem.resumo.md" in disposition
     assert "Conteúdo de teste." in response.text
 
 
@@ -414,7 +414,7 @@ def test_download_summary_json(client: TestClient) -> None:
     assert response.headers["content-type"].startswith("application/json")
     disposition = response.headers.get("content-disposition", "")
     assert "attachment" in disposition
-    assert f"transcript_{transcript.id}.resumo.json" in disposition
+    assert "Aula%2001%20-%20Modelagem.resumo.json" in disposition
 
     downloaded = response.json()
     assert downloaded["schema_version"] == "1.0.0"

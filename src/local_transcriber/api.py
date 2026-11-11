@@ -32,6 +32,7 @@ from .chatgpt_auth import DEFAULT_CLIENT_ID, ChatGPTAuthManager
 from .chatgpt_client import ChatGPTTransport
 from .config import AppConfig
 from .database import Database
+from .download_names import download_filename
 from .exceptions import (
     AntigravityError,
     AntigravityInferenceError,
@@ -1143,13 +1144,18 @@ def create_app(
         artifact = repository.get_artifact(artifact_id)
         if artifact is None:
             raise KeyError("export not found")
+        transcript = repository.get_transcript(artifact.transcript_id)
+        recording = (
+            None if transcript is None else repository.get_recording(transcript.recording_id)
+        )
+        title = recording.title if recording is not None else "transcricao"
         path = exporter.exported_path(artifact)
         if not path.is_file():
             raise FileNotFoundError("managed export file is missing")
         return FileResponse(
             path,
             media_type=artifact.media_type or "application/octet-stream",
-            filename=f"transcript.{artifact.kind}",
+            filename=download_filename(title, artifact.kind),
         )
 
     @app.get(f"{API_PREFIX}/recordings/{{recording_id}}/media")
@@ -1461,28 +1467,23 @@ def create_app(
         transcript_id: str,
         format: Annotated[str, Query(pattern="^(md|json)$")] = "md",
     ) -> FileResponse:
-        if repository.get_transcript(transcript_id) is None:
+        transcript = repository.get_transcript(transcript_id)
+        if transcript is None:
             raise KeyError("resumo não encontrado")
-
-        if format == "json":
-            file_path = find_summary_file(transcript_id, "json")
-            media_type = "application/json; charset=utf-8"
-            filename = f"transcript_{transcript_id}.resumo.json"
-        elif format == "md":
-            file_path = find_summary_file(transcript_id, "md")
-            media_type = "text/markdown; charset=utf-8"
-            filename = f"transcript_{transcript_id}.resumo.md"
-        else:
-            raise ValueError("formato inválido, utilize 'md' ou 'json'")
-
+        recording = repository.get_recording(transcript.recording_id)
+        title = recording.title if recording is not None else "transcricao"
+        file_path = find_summary_file(transcript_id, format)
         if file_path is None or not file_path.is_file():
             raise KeyError("resumo não encontrado")
-
+        media_type = (
+            "application/json; charset=utf-8"
+            if format == "json"
+            else "text/markdown; charset=utf-8"
+        )
         return FileResponse(
             file_path,
             media_type=media_type,
-            filename=filename,
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            filename=download_filename(title, f"resumo.{format}"),
         )
 
     PENDING_AUTH_TTL_SECONDS = 600.0

@@ -1,5 +1,17 @@
 # Estado atual do projeto (`Local Transcriber`)
 
+## Downloads com título e launchers — 2026-11-11
+
+- Downloads de transcrições nos formatos TXT/MD/SRT/VTT/JSON usam o título da
+  gravação. Resumos usam `<título>.resumo.md` ou `<título>.resumo.json`. Acentos
+  são preservados; barras e caracteres inválidos viram hífens. Os caminhos
+  internos de artefatos e o schema SQLite não foram alterados.
+- Launchers de duplo clique local/remoto e os scripts de inicialização incluídos
+  no versionamento. Os launchers da raiz atendem à instalação pelo código;
+  o Setup continua usando o launcher próprio com Python embarcado.
+- Testes focados de API, resumos, nomes portáveis, web e launcher remoto aprovados;
+  Ruff check, format check de código, pip check e diff check aprovados.
+
 ## Instalação Windows e modelos pela interface — 2026-11-11
 
 - Implementado build de Setup Inno e ZIP portátil com Python privado 3.13 x64,

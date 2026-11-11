@@ -325,6 +325,7 @@ def test_transcripts_segments_words_exports_and_download(client: TestClient) -> 
     artifact = created.json()
     downloaded = client.get(f"/api/exports/{artifact['id']}")
     assert downloaded.status_code == 200
+    assert "Aula%20local.json" in downloaded.headers["content-disposition"]
     assert json.loads(downloaded.content)["transcript"]["text"] == "conteúdo pesquisável"
     duplicate = client.post(f"/api/transcripts/{transcript.id}/exports", json={"format": "json"})
     assert duplicate.status_code == 409
