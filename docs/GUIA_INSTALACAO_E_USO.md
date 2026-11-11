@@ -76,6 +76,57 @@ pode funcionar sem internet. O aplicativo não baixa modelos sem sua confirmaç�
 Se aparecer uma falha, confira a conexão e o espaço livre e clique em
 **Tentar novamente**.
 
+### Instalar mais modelos depois
+
+Você pode voltar à aba **Modelos** a qualquer momento, escolher outro modelo,
+clicar em **Baixar** e confirmar. Não precisa reinstalar o aplicativo.
+É possível manter mais de um modelo instalado. Ao clicar em **Transcrever** na
+Biblioteca, escolha o modelo desejado; ele precisa estar instalado naquele computador.
+Baixar um modelo maior não muda automaticamente as transcrições que já estão na fila.
+
+### Qual modelo escolher?
+
+Não precisa baixar todos. Use a tabela como ponto de partida e compare os
+resultados com um trecho curto de uma gravação sua, preferencialmente com termos
+que você costuma usar nas aulas. Um modelo maior pode ajudar, mas também pode
+demorar mais e cometer erros. O áudio e o idioma influenciam o resultado.
+
+| Modelo | Quando vale experimentar |
+| --- | --- |
+| `tiny` | Teste rápido e computador com poucos recursos. Confira bem o texto. |
+| `base` | Uso leve, quando velocidade e menor consumo são importantes. |
+| `small` | Primeira transcrição e referência para comparar os demais em português. |
+| `medium` | Comparar um modelo maior quando o small erra termos ou trechos importantes. |
+| `large-v3-turbo` | Buscar velocidade com um modelo da família large. Compare a qualidade com large-v3. |
+| `large-v3` | Priorizar a avaliação de qualidade em áudios difíceis, aceitando maior consumo e possível demora. |
+| `large-v2` | Comparar resultados de uma versão anterior da família large; não é obrigatório baixá-lo para usar large-v3. |
+
+**Memória de vídeo (VRAM) é a memória da placa de vídeo; ela é diferente da RAM
+do computador.** O tamanho em MB/GB mostrado no catálogo é uma estimativa de
+download, não uma promessa de quanto o modelo ocupará na GPU.
+
+| Computador | Sugestão inicial |
+| --- | --- |
+| Sem placa de vídeo preparada para o aplicativo | `base` ou `small` no processador; teste o tempo antes de enviar uma aula longa. |
+| NVIDIA compatível com 4 GB de VRAM | `small` ou `medium` para comparar. É possível testar `large-v3` com CUDA preparado; não há uma regra de que large-v3 sempre exija mais de 4 GB. |
+| NVIDIA compatível com 8 GB ou mais | Compare `medium`, `large-v3-turbo` e `large-v3`; escolha pelo texto produzido, tempo e memória disponível. |
+| AMD RX 7600 com 8 GB | Primeiro validar o ambiente AMD e o worker separado. O instalador atual não habilita essa placa para transcrição em GPU. |
+
+O responsável pelo projeto relata usar **large-v3 com 4 GB de VRAM**. Isso serve
+como exemplo de uso possível, mas ainda é preciso testar cada computador e suas
+opções. O perfil CUDA atual usa `int8_float16`, uma forma de cálculo que reduz o
+consumo de memória em relação a usar somente números de maior precisão. Você não
+precisa configurar isso manualmente para usar esse perfil no aplicativo.
+
+Para comparar: transcreva o mesmo áudio curto com dois modelos, leia os nomes,
+termos técnicos e frases e observe o tempo. Se aparecer falta de memória, feche
+jogos e outros programas que usam a GPU ou escolha um modelo menor. Ter mais RAM
+não garante que um modelo caiba na memória da placa de vídeo.
+
+Referências: [como o motor reduz o uso de memória](https://opennmt.net/CTranslate2/quantization.html),
+[descrição do large-v3](https://huggingface.co/openai/whisper-large-v3) e
+[descrição do large-v3-turbo](https://huggingface.co/openai/whisper-large-v3-turbo).
+
 ## 5. Transcrever sua primeira gravação
 
 Comece com um áudio curto para se familiarizar com o programa.

@@ -63,6 +63,28 @@ em pastas diferentes. Um teste com dados separados precisa de preparação próp
 Resumos são opcionais e exigem preparação adicional do Ollama, explicada na aba
 Modelos. Ollama não é necessário para transcrever.
 
+### Posso instalar outros modelos depois? Qual baixar?
+
+**Sim. Abra Modelos, clique em Baixar no modelo desejado e confirme.** Você pode
+manter vários modelos instalados e escolher qual usar ao clicar em Transcrever.
+Não precisa reinstalar o programa. O modelo escolhido deve aparecer como Instalado.
+
+| Seu objetivo ou computador | Por onde começar |
+| --- | --- |
+| Primeiro uso | `small`, com um áudio curto para conferir o resultado. |
+| Computador sem GPU preparada | `base` ou `small`; modelos maiores podem levar mais tempo no processador. |
+| NVIDIA com 4 GB de memória de vídeo | Compare `small` e `medium`; `large-v3` também pode ser testado com o processamento CUDA preparado. Há relato de uso dele com 4 GB neste projeto. |
+| NVIDIA com 8 GB ou mais | Compare `medium`, `large-v3-turbo` e `large-v3`, conforme velocidade, qualidade e memória livre. |
+| Prioridade em velocidade com modelo maior | Experimente `large-v3-turbo` e confira o texto. |
+| AMD RX 7600 com 8 GB | O processamento nessa GPU exige o worker AMD separado, ainda em preparação; o Setup atual não prepara esse suporte. |
+
+**4 GB não são uma proibição automática de usar large-v3, nem garantia de que ele
+caiba em qualquer computador.** O aplicativo usa uma configuração que reduz o
+consumo de memória no perfil CUDA. A memória livre e as opções de processamento
+também influenciam. O tamanho do download não é a memória de vídeo necessária.
+Se faltar memória, feche outros programas que usam a GPU ou teste um modelo menor.
+Veja [as diferenças entre os modelos e como compará-los](docs/GUIA_INSTALACAO_E_USO.md#qual-modelo-escolher).
+
 <details>
 <summary>Instalação pelo código e referência técnica (opcional)</summary>
 
