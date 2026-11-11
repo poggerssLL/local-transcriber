@@ -42,6 +42,63 @@ Name: "{autodesktop}\Local Transcriber"; Filename: "{app}\python\python.exe"; Pa
 Filename: "{app}\python\python.exe"; Parameters: "-m local_transcriber.desktop"; Description: "Abrir Local Transcriber e preparar modelos"; Flags: postinstall nowait skipifsilent
 
 [Code]
+function InitializeSetup(): Boolean;
+var
+  UninstallCommand: String;
+  UninstallPath: String;
+  Action: String;
+  Choice: Integer;
+  ResultCode: Integer;
+begin
+  Result := True;
+  if not RegQueryStringValue(HKCU,
+    'Software\Microsoft\Windows\CurrentVersion\Uninstall\{FCDA092A-55BC-4BF1-8AD1-7937E48A19E4}_is1',
+    'UninstallString', UninstallCommand) then
+    Exit;
+
+  Action := Lowercase(ExpandConstant('{param:MAINTENANCE|}'));
+  if Action = 'uninstall' then
+    Choice := IDNO
+  else if Action = 'cancel' then
+    Choice := IDCANCEL
+  else if (Action = 'update') or WizardSilent then
+    Choice := IDYES
+  else
+    Choice := TaskDialogMsgBox('Local Transcriber ja esta instalado',
+      'Voce pode atualizar o aplicativo ou desinstala-lo.'#13#10 +
+      'Gravacoes, transcricoes e modelos serao preservados.'#13#10 +
+      'Feche o Local Transcriber antes de continuar.',
+      mbConfirmation, MB_YESNOCANCEL, ['&Atualizar', '&Desinstalar', '&Cancelar'], 0);
+
+  if Choice = IDYES then
+    Exit;
+  Result := False;
+  if Choice <> IDNO then
+    Exit;
+
+  UninstallPath := RemoveQuotes(UninstallCommand);
+  if not FileExists(UninstallPath) then begin
+    SuppressibleMsgBox('Desinstalador nao encontrado. Use Atualizar para reparar a instalacao.',
+      mbError, MB_OK, IDOK);
+    Exit;
+  end;
+  Log('Maintenance: uninstall requested explicitly.');
+  if not Exec(UninstallPath, '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART',
+    ExtractFileDir(UninstallPath), SW_HIDE, ewWaitUntilTerminated, ResultCode) then begin
+    SuppressibleMsgBox('Nao foi possivel iniciar a desinstalacao. Feche o aplicativo e tente novamente.',
+      mbError, MB_OK, IDOK);
+    Exit;
+  end;
+  if ResultCode <> 0 then
+    SuppressibleMsgBox('A desinstalacao nao foi concluida. Codigo: ' + IntToStr(ResultCode),
+      mbError, MB_OK, IDOK)
+  else begin
+    Log('Maintenance: uninstall completed; user runtime preserved.');
+    SuppressibleMsgBox('Local Transcriber desinstalado. Suas gravacoes, transcricoes e modelos foram preservados.',
+      mbInformation, MB_OK, IDOK);
+  end;
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   Installed: Cardinal;

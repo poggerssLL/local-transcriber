@@ -31,6 +31,13 @@ Se ocorrer erro de DLL no ZIP, execute o `vc_redist.x64.exe` incluído e tente n
 Atualizações exigem fechar o aplicativo e executar o novo Setup. A desinstalação
 remove o programa; não apaga o runtime de gravações, transcrições e modelos.
 
+Ao executar o Setup novamente, ele detecta a instalação por usuário e oferece
+**Atualizar**, **Desinstalar** e **Cancelar**. A opção Desinstalar remove o programa
+e os atalhos, preservando a biblioteca e os modelos. Feche o aplicativo antes.
+Instalações silenciosas continuam atualizando; nunca desinstalam automaticamente.
+Para validar o fluxo em ambiente de teste sem uma instalação prévia, use
+`scripts/verify-windows-maintenance.ps1 -Installer <caminho-do-Setup>`.
+
 ### Gerar a distribuição (mantenedor)
 
 Com Python 3.13 x64 na `.venv` e Inno Setup 6 instalado:

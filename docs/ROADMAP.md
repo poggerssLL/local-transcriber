@@ -19,6 +19,9 @@
 
 ## Próximas Etapas
 
+- **Manutenção Windows (2026-11-11)**: Setup reexecutado oferece atualizar,
+  desinstalar ou cancelar, preservando dados e modelos do usuário.
+
 - **Downloads e launchers (2026-11-11)**: nomes de arquivos derivados do título,
   incluindo resumos; launchers local/remoto incluídos no repositório.
 

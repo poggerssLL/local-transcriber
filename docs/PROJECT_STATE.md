@@ -1,5 +1,18 @@
 # Estado atual do projeto (`Local Transcriber`)
 
+## Manutenção pelo Setup — 2026-11-11
+
+- Reabrir o Setup detecta a instalação por usuário e oferece Atualizar,
+  Desinstalar ou Cancelar. Desinstalar chama o desinstalador registrado;
+  o runtime de gravações, transcrições e modelos permanece preservado.
+- Modo silencioso mantém atualização como padrão. A desinstalação nesse modo
+  exige `/MAINTENANCE=uninstall` explícito. Script de validação isolada recusa
+  execução se já existir instalação registrada, protegendo o aplicativo real.
+- Setup compilado e quatro fluxos automatizados aprovados nesta máquina:
+  instalação, cancelamento, atualização e desinstalação pela reexecução do Setup,
+  com dados sintéticos preservados. Fluxo interativo usa diálogo nativo do Windows;
+  a inspeção visual e a homologação em máquina limpa continuam pendentes.
+
 ## Downloads com título e launchers — 2026-11-11
 
 - Downloads de transcrições nos formatos TXT/MD/SRT/VTT/JSON usam o título da
