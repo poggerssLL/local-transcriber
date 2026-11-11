@@ -7,9 +7,10 @@ Este documento também contém instruções técnicas para quem trabalha com o c
 
 ## Instalador Windows com Python incluído
 
-Use `LocalTranscriber-Setup-0.7.1-windows-x64.exe`, gerado em `dist/` pelo
-processo de build abaixo. Este arquivo ainda precisa ser publicado pelo mantenedor
-para existir um download público. O ZIP de código do GitHub não é o instalador.
+Baixe [LocalTranscriber-Setup-0.7.1-windows-x64.exe](https://github.com/poggerssLL/local-transcriber/releases/download/v0.7.1/LocalTranscriber-Setup-0.7.1-windows-x64.exe)
+na [Release v0.7.1](https://github.com/poggerssLL/local-transcriber/releases/tag/v0.7.1).
+O ZIP de código do GitHub não é o instalador. Para gerar os arquivos localmente,
+consulte o processo de build abaixo.
 
 1. Execute o Setup no Windows 10/11 x64. Ele instala por usuário com Python privado
    e dependências, e cria um atalho no menu Iniciar. Se o Microsoft C++ Runtime

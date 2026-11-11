@@ -20,13 +20,13 @@ baixar o aplicativo e o modelo de transcrição. Depois, pode transcrever localm
 
 ### Instalação em poucos passos
 
-1. Obtenha com o responsável pelo projeto o arquivo
-   **LocalTranscriber-Setup-0.7.1-windows-x64.exe** (o número da versão pode mudar).
-   Ainda não há instalador publicado na área de downloads do GitHub.
+1. **[Baixe o instalador para Windows](https://github.com/poggerssLL/local-transcriber/releases/download/v0.7.1/LocalTranscriber-Setup-0.7.1-windows-x64.exe)**.
+   Na [página de downloads](https://github.com/poggerssLL/local-transcriber/releases/tag/v0.7.1),
+   o arquivo também aparece na seção **Assets**. Escolha o arquivo terminado em `.exe`.
    **Code → Download ZIP** baixa o código do projeto, e não o instalador.
 2. Salve esse `.exe` no computador em que deseja usar o aplicativo e dê dois cliques.
 3. Leia as instruções e a licença e siga as etapas de instalação.
-   Se for solicitado, permita a instala??o do componente Microsoft Visual C++ Runtime
+   Se for solicitado, permita a instalação do componente Microsoft Visual C++ Runtime
    com ajuda do administrador do computador.
 4. Ao terminar, marque **Abrir Local Transcriber e preparar modelos**.
    Nas próximas vezes, procure **Local Transcriber** no menu Iniciar do Windows.

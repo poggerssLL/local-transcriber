@@ -16,8 +16,9 @@ O aplicativo abre no navegador, mas funciona no seu computador.
 **Você não precisa baixar o repositório inteiro, instalar Python ou usar comandos
 para instalar e começar a transcrever pelo Setup.**
 
-Neste momento, o instalador deve ser fornecido pelo responsável pelo projeto.
-Ainda não há uma versão do instalador publicada na área de downloads do GitHub.
+**[Clique aqui para baixar o instalador para Windows](https://github.com/poggerssLL/local-transcriber/releases/download/v0.7.1/LocalTranscriber-Setup-0.7.1-windows-x64.exe).**
+Você também pode abrir a [página de downloads](https://github.com/poggerssLL/local-transcriber/releases/tag/v0.7.1)
+e, em **Assets**, escolher **LocalTranscriber-Setup-0.7.1-windows-x64.exe**.
 O botão **Code → Download ZIP** baixa o código do projeto, e não o instalador.
 
 ## 2. Instalar no Windows
@@ -181,7 +182,7 @@ grande. Baixar apenas o TXT ou MD salva o texto, mas não salva toda a bibliotec
 
 | Situação | O que fazer |
 | --- | --- |
-| Não encontro o Setup | Peça o arquivo `.exe` ao responsável pelo projeto. O ZIP do código não substitui o instalador. |
+| Não encontro o Setup | Use o link de download no início deste guia. Na página de downloads, abra Assets e escolha o `.exe`. O ZIP do código não substitui o instalador. |
 | O navegador não abriu | Copie o endereço mostrado na janela do aplicativo e abra no navegador. |
 | Modelo ausente | Abra Modelos, baixe o modelo escolhido e aguarde Instalado. |
 | Download falhou | Confira internet e espaço livre e use Tentar novamente. |
