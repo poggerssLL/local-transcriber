@@ -710,7 +710,20 @@
               <p>Modelos Whisper instalados e disponíveis para execução offline sem envio de áudio para a nuvem.</p>
             </div>
           </div>
+          <p>Comece pelo modelo <strong>small</strong>. Escolha Baixar e confirme o uso de internet e disco.
+            Após instalar, a transcrição funciona offline. Os tamanhos são aproximados; reserve espaço adicional.
+            Mantenha o aplicativo aberto durante o download. Se interrompido, clique em Baixar novamente.</p>
           <div id="model-list" class="model-list" aria-busy="true"></div>
+          <section class="data-panel" aria-labelledby="ollama-setup-heading">
+            <h3 id="ollama-setup-heading">Resumos locais com Ollama (opcional)</h3>
+            <p>Whisper transcreve o áudio. Para transformar o texto em resumo, prepare também o Ollama:</p>
+            <ol>
+              <li><a href="https://ollama.com/download/windows" target="_blank" rel="noopener noreferrer">Baixe e instale Ollama para Windows</a>.</li>
+              <li>Abra o Ollama e execute no terminal <code>ollama pull qwen2.5:3b</code> (download de aproximadamente 2 GB).</li>
+              <li>Mantenha o Ollama aberto. Na aba Leitura, escolha Ollama e clique em Gerar Resumo.</li>
+            </ol>
+            <p>Ollama e seu modelo são opcionais e não são instalados silenciosamente. A transcrição funciona sem eles.</p>
+          </section>
         </section>
       </main>
     </div>

@@ -17,6 +17,7 @@ from pathlib import Path
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--runtime-root", type=Path, required=True)
+    parser.add_argument("--desktop", action="store_true")
     args = parser.parse_args()
     root = args.runtime_root.resolve()
     root.mkdir(parents=True, exist_ok=False)
@@ -55,7 +56,14 @@ def main() -> None:
     flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
     with (root / "server.log").open("wb") as log:
         process = subprocess.Popen(
-            [sys.executable, "-m", "local_transcriber", "serve", "--port", str(port)],
+            [
+                sys.executable,
+                "-m",
+                "local_transcriber.desktop" if args.desktop else "local_transcriber",
+                *(["--no-browser"] if args.desktop else ["serve"]),
+                "--port",
+                str(port),
+            ],
             cwd=root,
             env=env,
             stdout=log,
@@ -78,6 +86,22 @@ def main() -> None:
             with opener.open(base_url + "/", timeout=5) as response:
                 if "Local Transcriber" not in response.read().decode("utf-8"):
                     raise RuntimeError("Installed interface missing")
+            with opener.open(base_url + "/api/models/downloads", timeout=5) as response:
+                if json.load(response) != {}:
+                    raise RuntimeError("Expected no automatic downloads")
+            request = urllib.request.Request(
+                base_url + "/api/models/small/download",
+                data=b'{"confirm":false}',
+                headers={"Content-Type": "application/json", "Origin": base_url},
+                method="POST",
+            )
+            try:
+                opener.open(request, timeout=5)
+            except urllib.error.HTTPError as exc:
+                if exc.code != 400:
+                    raise
+            else:
+                raise RuntimeError("Download confirmation was not enforced")
             request = urllib.request.Request(
                 base_url + "/api/subjects",
                 data=b'{"name":"Synthetic installation check"}',
@@ -97,6 +121,7 @@ def main() -> None:
                 "models_downloaded": False,
                 "inference_tested": False,
                 "other_computer_tested": False,
+                "desktop_launcher": args.desktop,
             }
             (root / "result.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
             print(json.dumps(result))

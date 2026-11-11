@@ -12,6 +12,11 @@ Uso comercial exige autorização expressa dos titulares.
 
 ## Requisitos e instalação
 
+Para uso sem instalar Python, há um build Windows com Python próprio, Setup e ZIP
+portátil. Abra o aplicativo e use **Modelos → Baixar small** para preparar a
+transcrição. Consulte [o guia de distribuição e instalação](docs/INSTALLATION.md).
+Os artefatos precisam ser gerados/publicados; o ZIP de código segue o fluxo abaixo.
+
 - Caminho recomendado: Windows 10/11 x64 e Python **3.13 64 bits**.
 - Sem necessidade de Orca, Codex, Node, conta de IA ou GPU NVIDIA. CPU funciona.
 - Internet na instalação inicial e no download explícito dos modelos; depois,
@@ -30,7 +35,7 @@ cd local-transcriber
 
 Abra **http://127.0.0.1:8765** e mantenha o terminal aberto. Crie uma matéria,
 importe uma gravação curta e transcreva com modelo `small`, perfil `cpu`.
-O instalador não baixa modelos nem inicia servidor/Ollama automaticamente.
+O script técnico não baixa modelos nem inicia servidor/Ollama automaticamente.
 Se scripts forem bloqueados, há comandos diretos no [guia](docs/INSTALLATION.md),
 sem alterar políticas globais. Dependências `[dev]` são apenas para contribuidores.
 
@@ -90,7 +95,8 @@ local-transcriber remote-session stop
 local-transcriber serve
 ```
 
-`models download` é a única operação que pode obter um modelo e exige `--confirm`.
+`models download` exige `--confirm`. A aba Modelos também permite baixar, mediante
+confirmação explícita, com acompanhamento do estado e nova tentativa em caso de falha.
 Uma transcrição comum abre exclusivamente o diretório já instalado com
 `local_files_only=True`; se o modelo estiver ausente, o comando falha sem acessar a rede.
 
@@ -217,7 +223,7 @@ mais de um worker para proteger a fila SQLite.
 1. Na biblioteca, escolha **Transcrever** para a gravação desejada.
 2. Revise modelo, idioma, perfil, beam size, VAD e timestamps antes de confirmar.
 3. Se o modelo estiver ausente, a interface mostra o comando necessário; ela nunca faz o
-   download sozinha. Para instalar explicitamente um modelo, use:
+  download sozinha. Use a aba Modelos ou, no terminal:
 
    ```powershell
    .\.venv\Scripts\local-transcriber models download small --confirm
@@ -252,7 +258,7 @@ artefato solicitado, mas só atualizam controles se a mesma transcrição ainda 
 
 Os dados da API são inseridos no DOM como texto, sem interpretação como HTML. O layout
 oferece navegação por teclado, foco visível, regiões de anúncio e adaptação para notebooks
-e telas menores. O download de modelos não é iniciado pela interface.
+e telas menores. O download de modelos exige confirmação na aba Modelos local.
 
 Modelos ausentes são informados com a ação necessária. O download continua disponível
 somente pela CLI explícita:

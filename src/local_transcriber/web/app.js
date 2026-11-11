@@ -16,6 +16,8 @@ import {
 } from "/assets/dom.js";
 
 const api = new LocalApi();
+let modelDownloadTimer = null;
+let modelDownloads = {};
 const exportLabels = Object.freeze({ txt: "TXT", md: "Markdown", srt: "SRT", vtt: "WebVTT", json: "JSON" });
 const views = Object.freeze({
   painel: ["Painel", "Visão geral"],
@@ -416,15 +418,70 @@ function renderModels() {
     const description = element("p", {
       text: model.installed
         ? "Disponível para novas transcrições neste computador."
-        : "A interface não baixa modelos. Execute o comando abaixo em um terminal quando desejar instalar.",
+        : "Clique em Baixar e confirme. Se preferir o terminal, use o comando abaixo.",
     });
     const action = model.required_action
       ? element("code", { text: model.required_action })
       : element("span", { text: "Pronto para uso" });
-    list.append(element("article", { className: "model-card" }, [identity, description, action]));
+    const details = {
+      tiny: "Muito leve · cerca de 75 MB · mais rápido, menor qualidade.",
+      base: "Leve · cerca de 145 MB · para começar em computadores modestos.",
+      small: "Recomendado para começar · cerca de 500 MB · português e outros idiomas.",
+      medium: "Cerca de 1,5 GB · exige mais memória e tempo de processamento.",
+      "large-v2": "Cerca de 3 GB · exige bastante memória; GPU recomendada.",
+      "large-v3": "Cerca de 3 GB · exige bastante memória; GPU recomendada.",
+      "large-v3-turbo": "Cerca de 1,6 GB · versão large otimizada para velocidade.",
+    };
+    const progress = modelDownloads[model.name];
+    const busy = Object.values(modelDownloads).some((item) => item.state === "downloading");
+    const status = element("p", { text: progress?.message || "", attributes: { role: "status" } });
+    const controls = [identity, element("p", { text: details[model.name] || "" }), description, action, status];
+    if (!model.installed) {
+      const button = element("button", {
+        type: "button", className: "button button-primary",
+        text: progress?.state === "failed" ? "Tentar novamente" : `Baixar ${model.name}`,
+      });
+      button.disabled = busy;
+      button.addEventListener("click", async () => {
+        if (!window.confirm(`Baixar ${model.name} neste computador? Usa internet e espaço em disco. ${details[model.name] || ""} Nenhum áudio será enviado.`)) return;
+        button.disabled = true;
+        try {
+          const result = await api.downloadModel(model.name);
+          modelDownloads[model.name] = result;
+          renderModels();
+          await refreshModelDownloads();
+        } catch (error) {
+          toast(error.message, "error");
+          button.disabled = false;
+        }
+      });
+      controls.push(button);
+    }
+    if (progress?.state === "downloading") {
+      const indicator = element("progress", { attributes: { "aria-label": `Baixando ${model.name}` } });
+      controls.push(indicator);
+    }
+    list.append(element("article", { className: "model-card" }, controls));
   }
   renderModelOptions();
 }
+
+async function refreshModelDownloads() {
+  clearTimeout(modelDownloadTimer);
+  try {
+    modelDownloads = await api.modelDownloads();
+    state.models = await api.models();
+    renderModels();
+    if (Object.values(modelDownloads).some((item) => item.state === "downloading")) {
+      modelDownloadTimer = setTimeout(refreshModelDownloads, 2500);
+    }
+  } catch (error) {
+    announce("Não foi possível consultar o download. Tentando reconectar…");
+    modelDownloadTimer = setTimeout(refreshModelDownloads, 5000);
+  }
+}
+
+window.addEventListener("load", () => { refreshModelDownloads(); });
 
 function renderModelOptions() {
   const select = byId("transcription-model");

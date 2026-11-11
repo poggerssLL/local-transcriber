@@ -19,6 +19,10 @@
 
 ## Próximas Etapas
 
+- **Distribuição Windows simplificada (2026-11-11)**: implementados build do Setup
+  com Python próprio, ZIP portátil, primeiro uso na aba Modelos e download explícito
+  pela UI local. Homologação em máquina limpa e publicação dos artefatos pendentes.
+
 1. **Fase 8J-B / Etapa 5 (Gate de Validação Física)**:
    - Validação real ponta a ponta com Tailscale ativo e dispositivo móvel (iPad).
 2. **Qualidade Semântica (Complemento 8G) e Etapa 9 (Futuro)**:

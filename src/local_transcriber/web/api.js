@@ -70,6 +70,16 @@ export class LocalApi {
     return this.request("/models", options);
   }
 
+  downloadModel(name) {
+    return this.request(`/models/${encodeURIComponent(name)}/download`, {
+      method: "POST", body: JSON.stringify({ confirm: true }),
+    });
+  }
+
+  modelDownloads() {
+    return this.request("/models/downloads");
+  }
+
   subjects(options = {}) {
     return this.request("/subjects", options);
   }

@@ -24,3 +24,16 @@ jobs:
       - name: Verify installed package, web interface and fresh database
         shell: powershell
         run: ./.venv/Scripts/python.exe -B ./scripts/smoke-installed.py --runtime-root output/install-smoke
+      - name: Build self-contained Windows installer
+        shell: powershell
+        run: ./scripts/build-windows-installer.ps1
+      - name: Verify embedded Python with fresh offline runtime
+        shell: powershell
+        run: |
+          $payload = Get-ChildItem build/windows-*/payload/python/python.exe | Select-Object -Last 1
+          & $payload.FullName -B ./scripts/smoke-installed.py --runtime-root output/embedded-smoke --desktop
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LocalTranscriber-windows-x64
+          path: dist/*

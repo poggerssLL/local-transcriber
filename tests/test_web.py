@@ -83,7 +83,10 @@ def test_web_shell_and_assets_are_local_and_work_without_network(
     assert responses["/assets/styles.css"].headers["content-type"].startswith("text/css")
     assert "javascript" in responses["/assets/app.js"].headers["content-type"]
     for response in responses.values():
-        assert re.search(r"https?://|//cdn", response.text, re.IGNORECASE) is None
+        assert (
+            re.search(r"https?://|//cdn", re.sub(r"<a\b[^>]*>", "", response.text), re.IGNORECASE)
+            is None
+        )
     csp = responses["/"].headers["content-security-policy"]
     assert "script-src 'self'" in csp
     assert "style-src 'self'" in csp

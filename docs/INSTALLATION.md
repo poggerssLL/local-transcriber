@@ -1,5 +1,63 @@
 # Instalar e usar em outro computador
 
+## Instalador Windows com Python incluído
+
+Use `LocalTranscriber-Setup-0.7.1-windows-x64.exe`, gerado em `dist/` pelo
+processo de build abaixo. Este arquivo ainda precisa ser publicado pelo mantenedor
+para existir um download público. O ZIP de código do GitHub não é o instalador.
+
+1. Execute o Setup no Windows 10/11 x64. Ele instala por usuário com Python privado
+   e dependências, e cria um atalho no menu Iniciar. Se o Microsoft C++ Runtime
+   estiver ausente, o Setup solicita elevação para instalar esse pré-requisito.
+2. Marque Abrir Local Transcriber ao terminar, ou use o atalho. Mantenha a janela
+   do aplicativo aberta enquanto usa a interface no navegador.
+3. No primeiro uso, a aba Modelos abre automaticamente. Clique em **Baixar small**
+   e confirme o uso de internet e disco. O estado aparece na tela; não há percentual
+   artificial. Em caso de falha, confira conexão/espaço e use Tentar novamente.
+4. Crie uma matéria, importe uma gravação e transcreva com perfil CPU.
+
+O SQLite e as pastas são criados ao abrir o serviço em
+`%LOCALAPPDATA%\LocalTranscriber`. Não precisa instalar banco, Python, FFmpeg,
+Orca ou Codex. O instalador inclui as interfaces local e remota atuais do pacote;
+o acesso remoto continua opt-in e exige Tailscale e configuração próprios.
+Modelos, Ollama, drivers NVIDIA e CUDA não fazem parte do Setup. A transcrição em
+CPU funciona sem esses componentes opcionais, após baixar um modelo Whisper.
+O download de modelos pela interface só está disponível no computador local;
+no iPad, a aba Modelos orienta a instalação no notebook.
+
+Também é gerado um ZIP portátil: extraia **todos** os arquivos e clique em
+`Abrir-LocalTranscriber.cmd`. Não mova apenas o atalho nem execute dentro do ZIP.
+Se ocorrer erro de DLL no ZIP, execute o `vc_redist.x64.exe` incluído e tente novamente.
+Atualizações exigem fechar o aplicativo e executar o novo Setup. A desinstalação
+remove o programa; não apaga o runtime de gravações, transcrições e modelos.
+
+### Gerar a distribuição (mantenedor)
+
+Com Python 3.13 x64 na `.venv` e Inno Setup 6 instalado:
+
+```powershell
+.\scripts\build-windows-installer.ps1
+```
+
+`-Compiler` aceita o caminho de `ISCC.exe`; `-PayloadOnly` gera apenas o ZIP.
+O build usa somente o pacote e dependências declarados em `pyproject.toml`, sem
+copiar `.venv`, mídias, SQLite ou configurações pessoais. O Python embarcado é
+obtido do site oficial e conferido por SHA-256. `build-info.json` registra versão,
+HEAD e se havia alterações locais; builds locais podem incluir trabalho sem commit.
+O workflow Windows compila e armazena os artefatos, sem publicar releases.
+O executável não recebe assinatura Authenticode neste processo; a distribuição
+pública e a homologação em Windows limpo continuam sendo etapas separadas.
+
+Validação local em 2026-11-11: Setup e ZIP gerados; CRC/exclusões do ZIP e 33
+arquivos empacotados conferidos contra o código atual. Setup instalado em pasta
+isolada, launcher executado com runtime sintético novo e navegador desativado,
+SQLite v4 e persistência confirmados; desinstalação preservou o runtime. Não foi
+feita inspeção visual (automação de navegador indisponível), inferência real pelo
+novo pacote ou instalação em outra máquina. Consulte `PROJECT_STATE.md` para
+validações de código e limites adicionais.
+
+## Instalação pelo código (alternativa técnica)
+
 O Local Transcriber roda no computador de quem o instala. Não é necessário
 ter Orca, Codex, Node, conta de IA, chave de API ou placa NVIDIA.
 O caminho de referência é **Windows 10/11, processador x64 e Python 3.13 64 bits**.
@@ -69,6 +127,10 @@ Se Python estiver instalado sem o launcher, informe seu executável 3.13:
 ```
 
 ## 4. Preparar o modelo de transcrição
+
+Você também pode abrir o aplicativo, entrar em **Modelos** e clicar em **Baixar**.
+O aplicativo só acessa a rede para baixar após sua confirmação. Os comandos abaixo
+continuam disponíveis como alternativa para terminal.
 
 Este é um **download explícito**, realizado somente quando você executar:
 

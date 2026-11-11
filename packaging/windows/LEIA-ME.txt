@@ -1,0 +1,22 @@
+LOCAL TRANSCRIBER - PRIMEIRO USO
+
+Windows 10/11 x64. Python e dependencias acompanham o aplicativo.
+
+1. Se estiver usando o ZIP, extraia tudo e abra Abrir-LocalTranscriber.cmd.
+   Pelo Setup, use o atalho Local Transcriber no menu Iniciar.
+2. Mantenha a janela aberta enquanto usa o navegador.
+3. Na aba Modelos, clique em Baixar small e confirme. Requer internet.
+4. Crie uma materia, importe audio e transcreva com perfil CPU.
+5. Depois de baixar o modelo, a transcricao funciona sem internet.
+6. Para encerrar, pressione Ctrl+C na janela do aplicativo.
+
+Falha de DLL no ZIP: execute vc_redist.x64.exe (Microsoft) e tente novamente.
+O Setup prepara esse requisito quando necessario e pode pedir administrador.
+
+Resumos locais sao opcionais: a aba Modelos explica a instalacao do Ollama e
+o comando para baixar qwen2.5:3b. Transcrever nao exige Ollama nem conta de IA.
+CUDA/NVIDIA e acesso remoto Tailscale exigem preparacao adicional.
+
+Os dados ficam em %LOCALAPPDATA%\LocalTranscriber, fora da pasta do programa.
+Feche o aplicativo antes de atualizar. Nao apague essa pasta para preservar
+gravacoes, transcricoes e modelos. Uso sujeito a LICENSE e licencas de terceiros.

@@ -157,7 +157,7 @@ def test_health_version_capabilities_and_openapi(client: TestClient) -> None:
     }
     assert client.get("/api/version").json()["api_version"] == "1"
     capabilities = client.get("/api/capabilities").json()
-    assert capabilities["model_download_via_api"] is False
+    assert capabilities["model_download_via_api"] is True
     assert capabilities["sse_replay"] is True
     openapi = client.get("/api/openapi.json").json()
     assert openapi["info"]["version"] == "0.7.1"

@@ -1,5 +1,32 @@
 # Estado atual do projeto (`Local Transcriber`)
 
+## Instalação Windows e modelos pela interface — 2026-11-11
+
+- Implementado build de Setup Inno e ZIP portátil com Python privado 3.13 x64,
+  dependências de produção e assets das duas interfaces. Atalho abre serviço
+  loopback e navegador; primeiro uso abre Modelos. SQLite v4 é criado no startup.
+- Aba Modelos local: catálogo com orientação de tamanho/uso, download confirmado,
+  estado assíncrono, um download por vez e repetição após falha. Nenhum modelo
+  é baixado ao instalar, abrir a página ou iniciar uma transcrição. API exige
+  confirmação e Origin exato. Downloads pela API ficam restritos ao computador local.
+- Ollama permanece opcional; a aba Modelos explica instalação e download de
+  `qwen2.5:3b`. O Setup prepara Microsoft C++ Runtime quando ausente (pode exigir
+  administrador); o ZIP portátil inclui o redistribuível oficial como alternativa.
+- Validação: suíte completa de 532 testes aprovada no checkout completo (incluindo alterações remotas locais); Ruff check global, format check
+  de `src/tests/scripts` e pip check aprovados. Smoke do Python embarcado offline
+  confirmou imports nativos, assets, startup e SQLite v4 com matéria sintética.
+  Setup e ZIP gerados em `dist/` com SHA-256; 33 arquivos de código/assets do
+  pacote conferidos contra o checkout. Instalação silenciosa em pasta isolada,
+  execução do launcher instalado com navegador desativado, confirmação obrigatória
+  de download, desinstalação e preservação do runtime sintético aprovadas nesta
+  máquina. Nenhum modelo real foi baixado por esses testes. Uma repetição focada
+  apresentou falha de timing no heartbeat SSE existente; passou no recheck isolado.
+  O format check sem escopo aponta dois blocos Python em Markdown preexistentes;
+  eles foram preservados. Detector de UI não resolveu `/assets/styles.css` no
+  filesystem e emitiu aviso de hierarquia tipográfica sem contexto completo de CSS.
+  Publicação pública, assinatura Authenticode, inspeção visual e
+  homologação em outro Windows limpo não são comprovadas pelo build local.
+
 > Atualizado em: 2026-10-27. Histórico detalhado das fases 1 a 8I preservado em `docs/archive/pre-slim-2026-10-25/` e nos relatórios `docs/PHASE_*.md`.
 
 ## Fotografia Técnica Atual

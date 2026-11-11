@@ -55,6 +55,7 @@ from .media import (
     MediaTooLargeError,
     UnsupportedMediaError,
 )
+from .model_downloads import ModelDownloads
 from .models import (
     ExportedArtifact,
     JobEvent,
@@ -150,6 +151,10 @@ class SearchResponse(ApiModel):
     subject_name: str
     lesson_date: date
     excerpt: str
+
+
+class ModelDownloadRequest(ApiModel):
+    confirm: bool = Field(default=False, strict=True)
 
 
 class ModelResponse(ApiModel):
@@ -730,6 +735,7 @@ def create_app(
     database = Database(app_config.paths.database)
     repository = Repository(database)
     models = model_manager or ModelManager(app_config.paths)
+    downloads = ModelDownloads(models)
     library = MediaLibrary(repository, app_config.paths, settings=media_settings)
     queue = TranscriptionQueue(repository, app_config.paths, models=models)
     exporter = TranscriptExporter(repository, app_config.paths)
@@ -929,7 +935,7 @@ def create_app(
             queue_worker="local-sequential",
             sse_replay=True,
             media_range=True,
-            model_download_via_api=False,
+            model_download_via_api=True,
             model_download_command="local-transcriber models download MODEL --confirm",
             upload_max_bytes=library.settings.max_size_bytes,
             export_formats=[item.value for item in ExportFormat],
@@ -1006,6 +1012,26 @@ def create_app(
             )
             for item in models.list_models()
         ]
+
+    @app.get(f"{API_PREFIX}/models/downloads")
+    def download_status() -> dict[str, dict[str, str]]:
+        return downloads.status()
+
+    @app.post(f"{API_PREFIX}/models/{{name}}/download", status_code=202)
+    def download_model(name: str, payload: ModelDownloadRequest, request: Request):
+        origin = request.headers.get("origin")
+        if origin is None or origin.rstrip("/") != str(request.base_url).rstrip("/"):
+            raise HTTPException(403, "Abra a interface local para baixar modelos.")
+        if request.headers.get("sec-fetch-site") == "cross-site":
+            raise HTTPException(403, "Requisição externa recusada.")
+        if not payload.confirm:
+            raise HTTPException(400, "Confirme o download e o uso de internet e disco.")
+        try:
+            return downloads.start(name)
+        except ValueError as exc:
+            raise HTTPException(422, "Modelo fora do catálogo.") from exc
+        except RuntimeError as exc:
+            raise HTTPException(409, str(exc)) from exc
 
     @app.get(f"{API_PREFIX}/runtime", response_model=RuntimeResponse)
     def runtime_status() -> RuntimeResponse:
