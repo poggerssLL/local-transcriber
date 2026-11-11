@@ -10,12 +10,67 @@ Versão atual: `0.7.1`, com schema SQLite v4.
 Uso permitido **pessoal e não comercial**, conforme a [licença](LICENSE).
 Uso comercial exige autorização expressa dos titulares.
 
-## Requisitos e instalação
+## Instalar e usar no Windows
 
-Para uso sem instalar Python, há um build Windows com Python próprio, Setup e ZIP
-portátil. Abra o aplicativo e use **Modelos → Baixar small** para preparar a
-transcrição. Consulte [o guia de distribuição e instalação](docs/INSTALLATION.md).
-Os artefatos precisam ser gerados/publicados; o ZIP de código segue o fluxo abaixo.
+**Basta o instalador Setup `.exe`. Você não precisa baixar o repositório inteiro,
+instalar Python ou usar comandos para começar.**
+
+O programa funciona em Windows 10/11 de 64 bits. Você precisa de internet para
+baixar o aplicativo e o modelo de transcrição. Depois, pode transcrever localmente.
+
+### Instalação em poucos passos
+
+1. Obtenha com o responsável pelo projeto o arquivo
+   **LocalTranscriber-Setup-0.7.1-windows-x64.exe** (o número da versão pode mudar).
+   Ainda não há instalador publicado na área de downloads do GitHub.
+   **Code → Download ZIP** baixa o código do projeto, e não o instalador.
+2. Salve esse `.exe` no computador em que deseja usar o aplicativo e dê dois cliques.
+3. Leia as instruções e a licença e siga as etapas de instalação.
+   Se for solicitado, permita a instala??o do componente Microsoft Visual C++ Runtime
+   com ajuda do administrador do computador.
+4. Ao terminar, marque **Abrir Local Transcriber e preparar modelos**.
+   Nas próximas vezes, procure **Local Transcriber** no menu Iniciar do Windows.
+5. Na aba **Modelos**, clique em **Baixar small**, confirme e aguarde **Instalado**.
+   Esse download é necessário uma vez; não é iniciado sem sua confirmação.
+
+A base de dados é criada automaticamente. Mantenha a janela com mensagens do
+aplicativo aberta durante o uso; a interface aparece no navegador.
+
+### Sua primeira transcrição
+
+1. Em **Matérias**, crie uma matéria, por exemplo **Álgebra Linear**.
+2. Em **Biblioteca**, escolha um áudio curto, preencha título, matéria e data e
+   clique em **Importar Arquivo**.
+3. Clique em **Transcrever**, escolha o modelo instalado, confira idioma e
+   processamento e confirme. **CPU** usa o processador do computador e pode funcionar
+   sem uma placa de vídeo preparada. **CUDA** exige uma placa NVIDIA e preparação
+   adicional. O processamento em outro computador com placa AMD ainda está em preparação.
+4. Acompanhe pela aba **Fila**. Ao terminar, clique em **Ler** na Biblioteca.
+5. Revise e baixe o texto em TXT ou Markdown; SRT/VTT servem para legendas.
+   O arquivo baixado usa o título da gravação, com caracteres inválidos adaptados.
+
+Para encerrar, volte à janela do aplicativo e pressione **Ctrl + C**.
+Para atualizar ou desinstalar, feche o aplicativo e abra o Setup novamente:
+se ele detectar a instalação, oferece **Atualizar**, **Desinstalar** ou **Cancelar**.
+A desinstalação preserva gravações, transcrições e modelos.
+
+**Já usa o transcritor neste computador?** Feche a versão aberta antes de iniciar
+outra. As versões do mesmo usuário compartilham a biblioteca, mesmo instaladas
+em pastas diferentes. Um teste com dados separados precisa de preparação própria.
+
+**[Leia o guia completo para iniciantes: instalação, uso, cópia de segurança e solução de problemas](docs/GUIA_INSTALACAO_E_USO.md).**
+
+Resumos são opcionais e exigem preparação adicional do Ollama, explicada na aba
+Modelos. Ollama não é necessário para transcrever.
+
+<details>
+<summary>Instalação pelo código e referência técnica (opcional)</summary>
+
+## Instalação pelo código
+
+As instruções abaixo são para quem quer executar o código do projeto. Para usar
+o instalador `.exe`, siga o passo a passo acima.
+[Guia técnico de instalação e distribuição](docs/INSTALLATION.md).
 
 - Caminho recomendado: Windows 10/11 x64 e Python **3.13 64 bits**.
 - Sem necessidade de Orca, Codex, Node, conta de IA ou GPU NVIDIA. CPU funciona.
@@ -362,3 +417,5 @@ O MCP Graphify local tamb?m est? configurado em .codex/config.toml e foi validad
 ## Gate da Etapa 1 remota — revisão do coordenador (2026-10-25)
 
 Gate técnico aprovado para servir de base à Etapa 2, limitado à evidência sintética. A Etapa 0 foi o complemento corretivo da Etapa 1. O worker registrou 194 testes focados e 384 na suíte completa aprovados; o coordenador conferiu as correções no código e nos testes, sem reexecutar a suíte. Homologação física Tailscale/iPad permanece pendente. Recuperação de journal incompleto pode exigir reconciliação manual e não há CAS contra alterações externas no Serve. A Etapa 2 não foi iniciada e exige nova autorização explícita.
+
+</details>

@@ -1,5 +1,10 @@
 # Instalar e usar em outro computador
 
+**Primeira vez usando o programa? Comece pelo
+[guia de instalação e uso para iniciantes](GUIA_INSTALACAO_E_USO.md).**
+Para instalar pelo Setup, basta o `.exe`; não é necessário baixar o repositório.
+Este documento também contém instruções técnicas para quem trabalha com o código.
+
 ## Instalador Windows com Python incluído
 
 Use `LocalTranscriber-Setup-0.7.1-windows-x64.exe`, gerado em `dist/` pelo
